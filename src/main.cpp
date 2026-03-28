@@ -6,13 +6,15 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <Wire.h>
-#include <ICM45605.h>
+#include <ICM45605S.h>
 #include <FastLED.h>
 #include <LittleFS.h>
 #include <BH1750.h>
 #include <vector>
 #include <ESPAsyncWebServer.h>
 #include "driver/gpio.h"
+#include "driver/spi_master.h"
+#include "esp_heap_caps.h"
 
 // Экспортируем сервер из network.cpp для добавления нового эндпоинта
 extern AsyncWebServer server;
@@ -43,8 +45,7 @@ std::vector<String> savedFiles;
 
 volatile uint32_t last_magnet_time = 0;   
 volatile uint32_t revolution_time = 0;    
-volatile bool magnet_triggered = false; 
-volatile bool is_rendering_rotation = false; // Флаг строгого рендеринга 1 оборота
+volatile bool magnet_triggered = false;
 volatile uint32_t last_power_toggle_time = 0; // Защита от EMI глитчей
 
 ICM456xx imu(SPI, PIN_CS);
@@ -54,7 +55,6 @@ BH1750 lightMeter;
 volatile bool hall_event = false;
 volatile uint32_t last_hall_time = 0;
 volatile uint32_t rotation_period = 0;
-int last_drawn_sector = -1; 
 RTC_DATA_ATTR bool force_stop_display = false;
 volatile uint32_t last_web_activity_time = 0; // Добавлено: отслеживание активности в Web UI
 
@@ -63,6 +63,15 @@ volatile bool bq_interrupt_flag = false;
 
 volatile uint32_t last_dcdc_off_time = 0;
 static bool peripherals_active = true;
+
+// --- ESP-IDF SPI DMA для SK9822 ---
+#define SK9822_END_FRAMES 20
+#define SK9822_BUF_SIZE   (4 + NUM_LEDS * 4 + SK9822_END_FRAMES)
+
+static spi_device_handle_t sk9822_spi    = nullptr;
+static uint8_t*            dma_tx_buffer = nullptr;
+static SemaphoreHandle_t   hallSemaphore = nullptr;
+static SemaphoreHandle_t   dmaMutex      = nullptr;
 
 volatile bool wakeup_event = false;
 
@@ -104,10 +113,17 @@ void IRAM_ATTR magnetInterruptHandler() {
     }
 
     // 50ms аппаратный антидребезг
-    if (now - last_hall_time > 50000) { 
+    if (now - last_hall_time > 50000) {
         rotation_period = now - last_hall_time;
         last_hall_time = now;
         hall_event = true;
+
+        // Будим renderingTask для нового оборота
+        if (hallSemaphore) {
+            BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+            xSemaphoreGiveFromISR(hallSemaphore, &xHigherPriorityTaskWoken);
+            portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+        }
     }
 }
 
@@ -193,27 +209,125 @@ void initBQ25792() {
     // Итоговое значение: 0x012C (в десятичной системе = 300). Шаг 10 мА -> 3000 мА.
 }
 
-// Upgraded architecture (4 LED arms, 90-degree spacing)
-void drawSector(int current_sector) {
-    if (frameBuffer == nullptr || !newFrameReady) return;
+// Инициализация аппаратного SPI с DMA вместо FastLED
+void initSK9822_DMA() {
+    spi_bus_config_t buscfg = {};
+    buscfg.mosi_io_num     = PIN_LED_DATA;
+    buscfg.miso_io_num     = -1;
+    buscfg.sclk_io_num     = PIN_LED_CLK;
+    buscfg.quadwp_io_num   = -1;
+    buscfg.quadhd_io_num   = -1;
+    buscfg.max_transfer_sz = SK9822_BUF_SIZE;
 
-    // Смещение для текущего кадра анимации (если это статика, index = 0)
+    spi_device_interface_config_t devcfg = {};
+    devcfg.clock_speed_hz = 20 * 1000 * 1000;  // 20 МГц
+    devcfg.mode           = 0;
+    devcfg.spics_io_num   = -1;
+    devcfg.queue_size     = 1;
+    devcfg.flags          = SPI_DEVICE_NO_DUMMY;
+
+    ESP_ERROR_CHECK(spi_bus_initialize(SPI2_HOST, &buscfg, SPI_DMA_CH_AUTO));
+    ESP_ERROR_CHECK(spi_bus_add_device(SPI2_HOST, &devcfg, &sk9822_spi));
+
+    dma_tx_buffer = (uint8_t*)heap_caps_malloc(SK9822_BUF_SIZE, MALLOC_CAP_DMA);
+    assert(dma_tx_buffer != nullptr);
+
+    memset(dma_tx_buffer, 0x00, 4);
+    memset(dma_tx_buffer + 4 + NUM_LEDS * 4, 0xFF, SK9822_END_FRAMES);
+    memset(dma_tx_buffer + 4, 0, NUM_LEDS * 4);
+    dmaMutex = xSemaphoreCreateMutex();
+    Serial.println("SK9822 DMA initialized");
+}
+
+// Заменитель FastLED.show() для статусных заливок и очистки
+void sendLEDs_DMA() {
+    if (!dma_tx_buffer || !sk9822_spi || !dmaMutex) return;
+    xSemaphoreTake(dmaMutex, portMAX_DELAY);
+    uint8_t* led_ptr = dma_tx_buffer + 4;
+    for (int i = 0; i < NUM_LEDS; i++) {
+        led_ptr[i * 4 + 0] = 0xFF;
+        led_ptr[i * 4 + 1] = leds[i].b;
+        led_ptr[i * 4 + 2] = leds[i].g;
+        led_ptr[i * 4 + 3] = leds[i].r;
+    }
+    spi_transaction_t t = {};
+    t.length    = SK9822_BUF_SIZE * 8;
+    t.tx_buffer = dma_tx_buffer;
+    spi_device_transmit(sk9822_spi, &t);
+    xSemaphoreGive(dmaMutex);
+}
+
+// Рендеринг одного сектора напрямую из PSRAM через DMA
+void drawSectorDMA(int current_sector) {
+    if (!frameBuffer || !newFrameReady || !dma_tx_buffer || !dmaMutex) return;
+
     uint32_t anim_offset = currentFrameIndex * FRAME_SIZE;
+    uint8_t  bri_byte    = 0xE0 | ((global_brightness * 31) / 100);
+
+    xSemaphoreTake(dmaMutex, portMAX_DELAY);
+
+    uint8_t* led_ptr = dma_tx_buffer + 4;
 
     for (int ray = 0; ray < 4; ray++) {
-        // 120 sectors / 4 arms = 30 sectors offset
-        int sector_to_draw = (current_sector + ray * 30) % 120; 
-        int buffer_offset = anim_offset + sector_to_draw * 38 * 3; 
+        int sector_to_draw = (current_sector + ray * 90) % 360;
+        const uint8_t* src = frameBuffer + anim_offset + sector_to_draw * 38 * 3;
 
         for (int i = 0; i < 38; i++) {
-            uint8_t r = frameBuffer[buffer_offset + i * 3];
-            uint8_t g = frameBuffer[buffer_offset + i * 3 + 1];
-            uint8_t b = frameBuffer[buffer_offset + i * 3 + 2];
-            leds[ray * 76 + i] = CRGB(r, g, b);
-            leds[ray * 76 + 75 - i] = CRGB(r, g, b); 
+            uint8_t r = src[i * 3];
+            uint8_t g = src[i * 3 + 1];
+            uint8_t b = src[i * 3 + 2];
+
+            int idx_a = (ray * 76 + i) * 4;
+            int idx_b = (ray * 76 + 75 - i) * 4;
+
+            led_ptr[idx_a + 0] = bri_byte; led_ptr[idx_a + 1] = b;
+            led_ptr[idx_a + 2] = g;        led_ptr[idx_a + 3] = r;
+            led_ptr[idx_b + 0] = bri_byte; led_ptr[idx_b + 1] = b;
+            led_ptr[idx_b + 2] = g;        led_ptr[idx_b + 3] = r;
         }
     }
-    FastLED.show();
+
+    spi_transaction_t t = {};
+    t.length    = SK9822_BUF_SIZE * 8;
+    t.tx_buffer = dma_tx_buffer;
+    spi_device_transmit(sk9822_spi, &t);
+
+    xSemaphoreGive(dmaMutex);
+}
+
+// Задача рендеринга: Core 1, priority 2
+void renderingTask(void* pvParameters) {
+    while (true) {
+        xSemaphoreTake(hallSemaphore, portMAX_DELAY);
+
+        if (force_stop_display || !peripherals_active || !newFrameReady) continue;
+
+        noInterrupts();
+        uint32_t t0     = last_hall_time;
+        uint32_t period = rotation_period;
+        interrupts();
+
+        if (period == 0) continue;
+
+        int last_sector = -1;
+
+        while (true) {
+            if (force_stop_display || !peripherals_active) break;
+
+            uint32_t elapsed = micros() - t0;
+            if (elapsed >= period) break;
+
+            int base = (int)((uint64_t)elapsed * 360 / period);
+            if (base >= 360) break;
+
+            int sector = (base + (int)global_angle_offset + 360) % 360;
+
+            if (sector != last_sector) {
+                drawSectorDMA(sector);
+                last_sector = sector;
+            }
+        }
+    }
 }
 
 void updateFileList() {
@@ -388,26 +502,35 @@ void setup() {
         loadFrameFromFile("/" + last_file);
     }
 
-    FastLED.addLeds<SK9822, PIN_LED_DATA, PIN_LED_CLK, BGR, DATA_RATE_MHZ(24)>(leds, NUM_LEDS);
-    FastLED.clear(true); FastLED.setBrightness((global_brightness * 255) / 100);
+    initSK9822_DMA();
+    FastLED.clear();
+    sendLEDs_DMA();
 
+    hallSemaphore = xSemaphoreCreateBinary();
+    xTaskCreatePinnedToCore(renderingTask, "render", 4096, NULL, 2, NULL, 1);
+
+    // Стартовая анимация ПЕРЕД подключением прерываний
+    if (isSlaveMode) { fill_solid(leds, NUM_LEDS, CRGB::Blue); }
+    else             { fill_solid(leds, NUM_LEDS, CRGB::Green); }
+    sendLEDs_DMA(); delay(200); FastLED.clear(); sendLEDs_DMA();
+
+    // Подключаем прерывания только после анимации
     attachInterrupt(digitalPinToInterrupt(PIN_COLOR_INT), magnetInterruptHandler, FALLING);
-
     attachInterrupt(digitalPinToInterrupt(PIN_WAKEUP), wakeupInterruptHandler, FALLING);
-    
-    if (isSlaveMode) { fill_solid(leds, NUM_LEDS, CRGB::Blue); } 
-    else { fill_solid(leds, NUM_LEDS, CRGB::Green); }
-    FastLED.show(); delay(200); FastLED.clear(true); FastLED.show();
 }
 
 void loop() {
-    loopNetwork();
+    static uint32_t last_network_us = 0;
+    uint32_t now_us_net = micros();
+    if (now_us_net - last_network_us >= 5000) {
+        loopNetwork();
+        last_network_us = micros();
+    }
 
     uint32_t now_ms = millis();
     uint32_t now_us = micros();
 
-    static bool is_rendering_rotation = false; // Флаг для рендеринга строго одного оборота
-    
+
     // --- БЕЗОПАСНОЕ ЧТЕНИЕ ПРЕРЫВАНИЙ ---
     // Защита от race conditions: читаем volatile переменные с отключенными прерываниями,
     // чтобы ISR не изменил их прямо во время математических расчетов.
@@ -435,16 +558,12 @@ void loop() {
     // --- 1. Обработка прерывания Холла (Event Handler) ---
     if (hall_event) {
         hall_event = false;
-        if (!force_stop_display) {
-            if (!peripherals_active) {
-                digitalWrite(PIN_EN_DCDC, HIGH);
-                digitalWrite(PIN_EN_LEVEL_SHIFT, HIGH);
-                peripherals_active = true;
-                is_rendering_rotation = false; 
-            } else {
-                is_rendering_rotation = true; 
-            }
+        if (!force_stop_display && !peripherals_active) {
+            digitalWrite(PIN_EN_DCDC, HIGH);
+            digitalWrite(PIN_EN_LEVEL_SHIFT, HIGH);
+            peripherals_active = true;
         }
+        // Рендеринг управляется renderingTask через hallSemaphore
     }
 
     // --- 1.5 Пробуждение от PIN_WAKEUP ---
@@ -455,8 +574,7 @@ void loop() {
             digitalWrite(PIN_EN_DCDC, HIGH);
             digitalWrite(PIN_EN_LEVEL_SHIFT, HIGH);
             peripherals_active = true;
-            is_rendering_rotation = false;
-            last_hall_time = now_us; 
+            last_hall_time = now_us;
         }
     }
 
@@ -473,25 +591,21 @@ void loop() {
     // --- 2. Логика остановки (Таймаут 1 секунда) ---
     if (peripherals_active && time_since_magnet_us > 1000000 && !force_stop_display) {
         Serial.println("Остановка рендеринга (Таймаут 1с). Отключение питания LED");
-        FastLED.clear(true);
-        FastLED.show();
+        FastLED.clear(); sendLEDs_DMA();
         digitalWrite(PIN_EN_LEVEL_SHIFT, LOW);
         digitalWrite(PIN_EN_DCDC, LOW);
-        last_dcdc_off_time = millis(); // Запоминаем время отключения
+        last_dcdc_off_time = millis();
         peripherals_active = false;
-        is_rendering_rotation = false;
     }
 
     // --- 3. Принудительная остановка из Web UI (Stop Display) ---
     if (force_stop_display && peripherals_active) {
         Serial.println("Web Interface: Принудительная остановка рендеринга");
-        FastLED.clear(true);
-        FastLED.show();
+        FastLED.clear(); sendLEDs_DMA();
         digitalWrite(PIN_EN_LEVEL_SHIFT, LOW);
         digitalWrite(PIN_EN_DCDC, LOW);
-        last_dcdc_off_time = millis(); // Запоминаем время отключения
+        last_dcdc_off_time = millis();
         peripherals_active = false;
-        is_rendering_rotation = false;
     }
 
     // --- 4. Deep Sleep (Таймаут 1 минута) ---
@@ -570,7 +684,7 @@ void loop() {
                 
                 if (global_brightness != target_b) {
                     global_brightness = target_b;
-                    FastLED.setBrightness((global_brightness * 255) / 100);
+                    // drawSectorDMA() читает global_brightness напрямую
                 }
             }
             last_lux_time = now_ms;
@@ -579,49 +693,55 @@ void loop() {
 
     // --- 6. Мониторинг BMS (Непрерывный мониторинг, даже при остановленном рендере) ---
     static uint32_t last_bms_check_time = 0;
-    if (now_ms - last_bms_check_time > 1000) { 
+    static uint32_t last_bms_recovery_time = 0;
+    static bool bms_recovery_in_progress = false;
+    static uint32_t bms_recovery_off_time = 0;
+
+    // Завершение восстановления: 5 секунд прошло — включаем питание обратно
+    if (bms_recovery_in_progress && (now_ms - bms_recovery_off_time >= 5000)) {
+        bms_recovery_in_progress = false;
+        digitalWrite(PIN_EN_DCDC, HIGH);
+        digitalWrite(PIN_EN_LEVEL_SHIFT, HIGH);
+        peripherals_active = true;
+        Wire.beginTransmission(BQ25792_ADDR);
+        Wire.write(0x0F);
+        Wire.write(0xA2); // Re-enable charging
+        Wire.endTransmission();
+        FastLED.clear(); sendLEDs_DMA();
+        last_bms_recovery_time = now_ms;
+        Serial.println("BMS Recovery Complete.");
+    }
+
+    // Проверка раз в секунду, только если восстановление не идёт
+    if (!bms_recovery_in_progress && now_ms - last_bms_check_time > 1000) {
         last_bms_check_time = now_ms;
-        
-        // Включаем ADC для уверенности, что данные свежие
+
         Wire.beginTransmission(BQ25792_ADDR);
         Wire.write(0x2E);
         Wire.write(0x80); // ADC_EN = 1
         Wire.endTransmission();
-        
+
         int16_t vbat_raw = readBQ16(0x3B);
-        static uint32_t last_bms_recovery_time = 0;
-        
-        // Триггер: Напряжение батареи застряло в диапазоне 1.1V - 1.3V
+
         if (vbat_raw >= 1000 && vbat_raw <= 1400) {
-            // Lockout: 30 секунд между запусками цикла восстановления
-            if (now_ms - last_bms_recovery_time > 30000 || last_bms_recovery_time == 0) {
+            if (now_ms - last_bms_recovery_time > 30000) {
                 Serial.println("BMS Latch Detected (VBAT 1.0-1.4V)! Initiating Recovery Sequence...");
-                
-                // STEP 1 — Disable charging (ИСПРАВЛЕНО: 0x82 вместо 0x1A)
+
                 Wire.beginTransmission(BQ25792_ADDR);
                 Wire.write(0x0F);
                 Wire.write(0x82);
                 Wire.endTransmission();
 
-                // STEP 2 — Turn off power rails
+                FastLED.clear();
+                if (peripherals_active) sendLEDs_DMA();
                 digitalWrite(PIN_EN_DCDC, LOW);
                 digitalWrite(PIN_EN_LEVEL_SHIFT, LOW);
+                peripherals_active = false;
+                last_dcdc_off_time = millis();
 
-                // STEP 3 — Wait 5 seconds
-                delay(5000);
-
-                // STEP 4 — Re-enable rails
-                digitalWrite(PIN_EN_DCDC, HIGH);
-                digitalWrite(PIN_EN_LEVEL_SHIFT, HIGH);
-
-                // STEP 5 — Re-enable charging (ИСПРАВЛЕНО: 0xA2 вместо 0x3A)
-                Wire.beginTransmission(BQ25792_ADDR);
-                Wire.write(0x0F);
-                Wire.write(0xA2);
-                Wire.endTransmission();
-                
-                last_bms_recovery_time = millis(); // Обновляем таймер после завершения
-                Serial.println("BMS Recovery Sequence Complete.");
+                bms_recovery_in_progress = true;
+                bms_recovery_off_time = now_ms;
+                Serial.println("Power off. Waiting 5s non-blocking...");
             }
         }
     }
@@ -644,38 +764,4 @@ void loop() {
         }
     }
 
-// --- 9. Синхронизированный рендеринг ---
-    if (newFrameReady && peripherals_active && safe_last_hall_time > 0 && !force_stop_display) {
-        
-        // Рендерим только если есть разрешение на этот оборот
-        if (is_rendering_rotation && safe_rotation_period > 0) {
-            
-            // ОБНОВЛЯЕМ время прямо перед рендером! 
-            // Это полностью исключает влияние задержек (джиттера) от I2C или WebUI выше по коду.
-            uint32_t render_now_us = micros();
-            uint32_t precise_time_since_magnet_us = 0;
-            
-            if (render_now_us >= safe_last_hall_time) {
-                precise_time_since_magnet_us = render_now_us - safe_last_hall_time;
-            } else {
-                precise_time_since_magnet_us = (0xFFFFFFFF - safe_last_hall_time) + render_now_us + 1;
-            }
-            
-            int base_sector = (precise_time_since_magnet_us * 120) / safe_rotation_period;
-            
-            // Если колесо чуть замедлилось (время превысило ожидаемый период),
-            // удерживаем последний сектор горящим в ожидании датчика Холла.
-            if (base_sector >= 120) {
-                base_sector = 119; 
-            }
-
-            int offset_sectors = (global_angle_offset * 120) / 360;
-            int current_sector = (base_sector + offset_sectors) % 120;
-
-            if (current_sector != last_drawn_sector) {
-                drawSector(current_sector);
-                last_drawn_sector = current_sector;
-            }
-        }
-    }
 }

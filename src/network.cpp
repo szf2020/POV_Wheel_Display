@@ -26,8 +26,8 @@ const char* HOTSPOT_SSID = "Bunnies Stan 2.4G"; // Впиши реальное �
 const char* HOTSPOT_PASS = "ValentinaAleksei";            // Впиши пароль
 
 void safeOTAShutdown() {
-    FastLED.clear(true); 
-    FastLED.show();
+    FastLED.clear();
+    sendLEDs_DMA();
 }
 
 void loadFrameFromFile(String path) {
@@ -280,7 +280,7 @@ void loopNetwork() {
             prefs.putBool("is_slave", isSlaveMode);
             FastLED.clear(true);
             fill_solid(leds, NUM_LEDS, isSlaveMode ? CRGB::Blue : CRGB::Green);
-            FastLED.show(); 
+            sendLEDs_DMA();
             delay(1000); 
             ESP.restart();
         }

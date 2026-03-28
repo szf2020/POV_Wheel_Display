@@ -9,7 +9,7 @@
 
 // --- ПАРАМЕТРЫ ДИСПЛЕЯ ---
 #define NUM_LEDS 304              // 4 луча по 76 диодов
-#define FRAME_SIZE (120 * 38 * 3) // 13680 байт
+#define FRAME_SIZE (360 * 38 * 3) // 41040 байт
 
 // --- ПИНЫ ESP32-S3 ---
 #define PIN_CS             41
@@ -51,3 +51,6 @@ extern bool slideshowActive;
 extern uint16_t slideInterval;
 
 extern Preferences prefs;
+
+// DMA-замена FastLED.show() — определена в main.cpp, используется также в network.cpp
+extern void sendLEDs_DMA();
