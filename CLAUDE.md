@@ -1,6 +1,9 @@
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Если мой запрос на русском языке, то отвечай тоже на русском. Комментарии к коду должны быть тоже на русском языке.
+Если у тебя есть предложения, или ты не согласен с моим предложением - напиши об этом и предложи лучший вариант реализации, опиши его сильные стороны.
+
 
 ## Project Overview
 
@@ -36,11 +39,11 @@ No automated tests exist. Validation is done via serial monitor and the web UI a
 1. **Hall sensor** (PIN_COLOR_INT, GPIO 4) triggers `magnetInterruptHandler()` on each wheel revolution, timestamping `last_hall_time` and `rotation_period`.
 2. **`loop()`** in [src/main.cpp](src/main.cpp) computes the current sector (0–119) from elapsed time since last magnet pass.
 3. **`drawSector(int sector)`** reads from the PSRAM-allocated `frameBuffer` and writes to the `leds[]` FastLED array (304 LEDs, SPI via GPIO 11/12). Each arm mirrors data symmetrically — 38 LEDs per half-arm.
-4. **`FastLED.show()`** sends updated data to the SK9822 chain.
+4. **`FastLED.show()`** sends updated data to the SK9822-A chain.
 
 ### Frame Buffer Format
 
-- **Static image:** 13,680 bytes of raw RGB — `360 sectors × 38 LEDs × 3 bytes`
+- **Static image:** 765,887 bytes of raw RGB — `360 sectors × 38 LEDs × 3 bytes`
 - **Animation (GIF-like):** `"ANIM"` magic header (4 bytes) + frame count (2 bytes) + frame delay ms (2 bytes) + N × 13,680 bytes of frame data
 - All files uploaded to LittleFS must have a `.bin` extension
 - Buffer is allocated in PSRAM; old buffer is explicitly freed before loading a new file

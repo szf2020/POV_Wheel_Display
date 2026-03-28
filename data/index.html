@@ -1,502 +1,611 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
-    <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>POV Wheel Control</title>
-    <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1e1e1e; color: #fff; margin: 0; padding: 20px; text-align: center; }
-        .card { background: #2d2d2d; padding: 20px; margin: 0 auto 20px; border-radius: 12px; max-width: 500px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
-        h2, h3 { margin-top: 0; color: #4CAF50; }
-        button { background: #4CAF50; color: white; border: none; padding: 10px 15px; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.2s; margin: 5px; }
-        button:hover { background: #45a049; }
-        button.danger { background: #f44336; }
-        button.danger:hover { background: #da190b; }
-        button.warning { background: #ff9800; width: 100%; margin-top: 10px; }
-        button.warning:hover { background: #e68a00; }
-        input[type="range"] { width: 100%; margin: 10px 0; }
-        input[type="text"] { background: #3d3d3d; color: #fff; border: 1px solid #555; border-radius: 6px; width: 100%; margin-bottom: 15px; box-sizing: border-box; padding: 8px; }
-        .file-item { display: flex; justify-content: space-between; align-items: center; background: #3d3d3d; padding: 10px; border-radius: 6px; margin-bottom: 8px; }
-        #preview { border: 2px dashed #555; border-radius: 50%; margin-top: 15px; background: #000; }
-        .telemetry p { margin: 8px 0; font-size: 1.1em; }
-    </style>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>POV WHEEL CONTROL</title>
+<style>
+:root {
+    --c: #00d4ff; --c2: #0055ff; --acc: #ff8800;
+    --bg: #050510; --card: #08101e; --border: #00d4ff33;
+    --text: #a0d8ef; --dim: #3a5a6a; --danger: #ff2244;
+    --ok: #00ff88; --glow: rgba(0,212,255,0.15);
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: 'Courier New', Consolas, monospace;
+    background: var(--bg); color: var(--text);
+    padding: 16px; min-height: 100vh;
+    background-image:
+        linear-gradient(rgba(0,212,255,0.025) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,212,255,0.025) 1px, transparent 1px);
+    background-size: 40px 40px;
+}
+header {
+    text-align: center; margin-bottom: 20px; padding: 14px 0;
+    border-bottom: 1px solid var(--border);
+}
+header h1 {
+    font-size: 1.4em; letter-spacing: 0.25em; color: var(--c);
+    text-shadow: 0 0 18px var(--c);
+}
+header .sub { font-size: 0.68em; color: var(--dim); letter-spacing: 0.15em; margin-top: 5px; }
+.grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px; max-width: 860px; margin: 0 auto;
+}
+.full { grid-column: 1 / -1; }
+.panel {
+    background: var(--card); border: 1px solid var(--border);
+    padding: 16px; position: relative;
+    box-shadow: 0 0 18px var(--glow), inset 0 0 18px rgba(0,212,255,0.03);
+}
+.panel::before {
+    content: ''; position: absolute; top: 0; left: 0;
+    width: 7px; height: 7px; border-top: 2px solid var(--c); border-left: 2px solid var(--c);
+}
+.panel::after {
+    content: ''; position: absolute; bottom: 0; right: 0;
+    width: 7px; height: 7px; border-bottom: 2px solid var(--c); border-right: 2px solid var(--c);
+}
+.panel-title {
+    font-size: 0.62em; letter-spacing: 0.2em; color: var(--c);
+    text-transform: uppercase; margin-bottom: 13px;
+    padding-bottom: 7px; border-bottom: 1px solid var(--border);
+}
+button {
+    background: transparent; border: 1px solid var(--c); color: var(--c);
+    padding: 7px 14px; cursor: pointer; font-family: inherit;
+    font-size: 0.72em; letter-spacing: 0.1em; text-transform: uppercase;
+    transition: all 0.15s;
+    clip-path: polygon(6px 0%, 100% 0%, calc(100% - 6px) 100%, 0% 100%);
+}
+button:hover { background: var(--c); color: var(--bg); box-shadow: 0 0 12px var(--c); }
+button.danger { border-color: var(--danger); color: var(--danger); clip-path: none; }
+button.danger:hover { background: var(--danger); color: #fff; box-shadow: 0 0 10px var(--danger); }
+button.full-w { width: 100%; clip-path: none; margin-top: 8px; }
+input[type="text"], input[type="file"] {
+    background: #0a1628; color: var(--text); border: 1px solid var(--border);
+    padding: 8px 10px; width: 100%; margin-bottom: 10px;
+    font-family: inherit; font-size: 0.78em; outline: none;
+}
+input[type="text"]:focus { border-color: var(--c); box-shadow: 0 0 8px rgba(0,212,255,0.25); }
+input[type="file"] { cursor: pointer; color: var(--dim); }
+
+/* ---- Dual-range brightness slider ---- */
+.bri-wrap { position: relative; height: 32px; margin: 8px 0 4px; user-select: none; }
+.bri-track {
+    position: absolute; top: 50%; left: 0; right: 0;
+    height: 4px; background: #0a2040; transform: translateY(-50%);
+}
+.bri-fill {
+    position: absolute; top: 50%; height: 4px;
+    background: linear-gradient(90deg, #0055ff, #00d4ff);
+    transform: translateY(-50%); pointer-events: none;
+}
+.bri-cursor {
+    position: absolute; top: 50%; transform: translate(-50%, -50%);
+    width: 10px; height: 10px; background: var(--acc);
+    clip-path: polygon(50% 0%,100% 50%,50% 100%,0% 50%);
+    pointer-events: none; z-index: 10;
+    box-shadow: 0 0 8px var(--acc);
+    transition: left 0.3s;
+}
+.bri-wrap input[type="range"] {
+    position: absolute; width: 100%; height: 32px; top: 0; left: 0; margin: 0; padding: 0;
+    -webkit-appearance: none; appearance: none;
+    background: transparent; outline: none; pointer-events: none;
+}
+.bri-wrap input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 16px; height: 16px; background: var(--c);
+    clip-path: polygon(50% 0%,100% 50%,50% 100%,0% 50%);
+    cursor: pointer; pointer-events: all;
+    box-shadow: 0 0 8px var(--c);
+}
+.bri-wrap input[type="range"]::-moz-range-thumb {
+    width: 16px; height: 16px; background: var(--c);
+    border: none; cursor: pointer; pointer-events: all; border-radius: 0;
+}
+.bri-labels {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 0.63em; color: var(--dim); margin-bottom: 10px;
+}
+.bri-labels .now { color: var(--acc); font-size: 1.05em; }
+.bri-labels b { color: var(--c); }
+.bri-labels .now b { color: var(--acc); }
+
+/* ---- Angle slider ---- */
+.slider-row { margin-bottom: 12px; }
+.slider-row label { display: flex; justify-content: space-between; font-size: 0.68em; letter-spacing: 0.07em; margin-bottom: 5px; }
+.slider-row label span { color: var(--c); }
+input.angle-slide {
+    -webkit-appearance: none; appearance: none; width: 100%; height: 3px;
+    background: #0a2040; outline: none; pointer-events: all;
+}
+input.angle-slide::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 14px; height: 14px; background: var(--c);
+    clip-path: polygon(50% 0%,100% 50%,50% 100%,0% 50%);
+    cursor: pointer; box-shadow: 0 0 8px var(--c);
+}
+input.angle-slide::-moz-range-thumb {
+    width: 14px; height: 14px; background: var(--c);
+    border: none; cursor: pointer; border-radius: 0;
+}
+
+/* ---- File list ---- */
+.file-item {
+    display: flex; align-items: center;
+    border: 1px solid var(--border); padding: 7px 10px;
+    margin-bottom: 5px; background: #060f1c; gap: 8px;
+}
+.file-item .fname { flex: 1; font-size: 0.72em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.file-item .fsize { font-size: 0.62em; color: var(--dim); white-space: nowrap; }
+.file-item .acts { display: flex; gap: 4px; }
+.file-item button { padding: 3px 10px; font-size: 0.65em; clip-path: none; }
+
+/* ---- Stats ---- */
+.stat-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; font-size: 0.75em; }
+.stat-row .lbl { color: var(--dim); letter-spacing: 0.06em; }
+.stat-row .val { color: var(--c); }
+.fs-bar { height: 4px; background: #0a2040; margin: 6px 0 3px; }
+.fs-bar-fill { height: 100%; background: linear-gradient(90deg, var(--c2), var(--c)); transition: width 0.4s; }
+.fs-label { font-size: 0.62em; color: var(--dim); text-align: right; margin-bottom: 10px; }
+.status-bar {
+    font-size: 0.68em; color: var(--dim); margin-top: 8px;
+    padding: 5px 8px; border-left: 2px solid var(--c);
+    background: #060f1c; min-height: 26px;
+}
+.status-bar.ok { border-color: var(--ok); color: var(--ok); }
+.status-bar.err { border-color: var(--danger); color: var(--danger); }
+
+/* ---- Canvas ---- */
+canvas {
+    display: block; border-radius: 50%;
+    border: 1px solid var(--border); background: #000;
+    margin: 10px auto; box-shadow: 0 0 10px var(--glow);
+    width: 160px; height: 160px; /* display size */
+}
+
+/* ---- OTA footer ---- */
+.ota-footer {
+    max-width: 860px; margin: 16px auto 0; text-align: center;
+}
+.ota-footer button {
+    border-color: #ff660044; color: #ff6600; clip-path: none;
+    font-size: 0.7em; padding: 6px 20px;
+}
+.ota-footer button:hover { background: #ff6600; color: #fff; box-shadow: 0 0 10px #ff6600; }
+
+@media (max-width: 580px) { .grid { grid-template-columns: 1fr; } }
+</style>
 </head>
 <body>
 
-<div class="card">
-    <h2>1. Связь с ведомым (Slave)</h2>
-    <button onclick="scanSlaves()">Поиск синего колеса</button>
-    <div id="scanStatus" style="margin-top: 10px; color: #aaa;">Статус: Не проверено</div>
-    <div id="foundDevice" style="margin-top: 15px; display: none;">
-        Найден: <b id="devName"></b><br>
-        <button onclick="pairDevice()" style="background: #28a745; margin-top: 10px;">Создать пару</button>
+<header>
+    <h1>&#9674; POV WHEEL CONTROL &#9674;</h1>
+    <div class="sub" id="deviceName">CONNECTING...</div>
+</header>
+
+<div class="grid">
+
+<!-- UPLOAD -->
+<div class="panel full">
+    <div class="panel-title">// Upload Animation</div>
+    <input type="file" id="fileInput" accept="image/*">
+    <input type="text" id="fileNameInput" placeholder="Custom name (optional) — prefix gif_ or img_ added automatically">
+    <!-- Canvas buffer 200×200, displayed at 160×160 -->
+    <canvas id="preview" width="200" height="200" style="display:none;"></canvas>
+    <button class="full-w" onclick="processAndUpload()">&#9654; Convert &amp; Upload</button>
+    <div class="status-bar" id="uploadStatus">Waiting for file...</div>
+</div>
+
+<!-- STORAGE -->
+<div class="panel full">
+    <div class="panel-title">// Storage — Device Memory</div>
+    <div class="fs-bar"><div class="fs-bar-fill" id="fsFill" style="width:0%"></div></div>
+    <div class="fs-label" id="fsLabel">Loading...</div>
+    <div id="fileList"></div>
+    <button class="full-w danger" onclick="stopDisplay()">&#9632; Stop Display</button>
+</div>
+
+<!-- SETTINGS -->
+<div class="panel">
+    <div class="panel-title">// Display Settings</div>
+
+    <!-- Dual-range brightness -->
+    <div style="font-size:0.63em;letter-spacing:0.1em;color:var(--dim);margin-bottom:5px;">BRIGHTNESS RANGE</div>
+    <div class="bri-wrap">
+        <div class="bri-track"></div>
+        <div class="bri-fill" id="drFill"></div>
+        <div class="bri-cursor" id="drCursor" style="left:0%"></div>
+        <input type="range" id="bMinSlide" min="1" max="50" value="10">
+        <input type="range" id="bMaxSlide" min="1" max="50" value="50">
+    </div>
+    <div class="bri-labels">
+        <span>MIN&nbsp;<b id="bMinVal">10</b>%</span>
+        <span class="now">NOW&nbsp;<b id="briVal">--</b>%</span>
+        <span>MAX&nbsp;<b id="bMaxVal">50</b>%</span>
+    </div>
+
+    <!-- Angle -->
+    <div class="slider-row">
+        <label>ANGLE OFFSET <span id="aVal">0</span>&deg;</label>
+        <input class="angle-slide" type="range" id="aSlide" min="0" max="360" value="0"
+               oninput="document.getElementById('aVal').textContent=this.value"
+               onchange="syncSettings()">
     </div>
 </div>
 
-<div class="card">
-    <h2>2. Загрузка новой анимации/картинки</h2>
-    <input type="file" id="fileInput" accept="image/*" style="margin-bottom: 10px;">
-    <input type="text" id="fileNameInput" placeholder="Имя файла (например, logo)">
-    <br><canvas id="preview" width="200" height="200" style="display:none;"></canvas><br>
-    <button onclick="processAndUpload()" style="width: 100%; margin-top: 10px;">Конвертировать и Загрузить</button>
-    <div id="uploadStatus" style="color: #aaa; margin-top: 10px;">Ожидание файла...</div>
+<!-- POWER -->
+<div class="panel">
+    <div class="panel-title">// Power Status</div>
+    <div class="stat-row"><span class="lbl">BATTERY VOLTAGE</span><span class="val" id="batV">--</span>&nbsp;V</div>
+    <div class="stat-row"><span class="lbl">CHARGE CURRENT</span><span class="val" id="batI">--</span>&nbsp;A</div>
+    <div class="stat-row"><span class="lbl">INPUT VOLTAGE</span><span class="val" id="busV">--</span>&nbsp;V</div>
+    <div class="stat-row"><span class="lbl">INPUT CURRENT</span><span class="val" id="busI">--</span>&nbsp;A</div>
 </div>
 
-<div class="card">
-    <h2>3. Память устройства (LittleFS)</h2>
-    <button onclick="loadFiles()">Обновить список</button>
-    <button onclick="stopDisplay()" class="danger" style="width: 100%; margin-top: 10px;">Stop Display</button>
-    <div id="fileList" style="margin-top: 15px; text-align: left;"></div>
-</div>
+</div><!-- /grid -->
 
-<div class="card">
-    <h2>4. Настройки "На лету"</h2>
-    <label>Мин. Яркость: <span id="bMinVal">10</span>%</label>
-    <input type="range" id="bMinSlide" min="1" max="50" value="10" onchange="syncSettings()">
-    
-    <label>Макс. Яркость: <span id="bMaxVal">50</span>%</label>
-    <input type="range" id="bMaxSlide" min="1" max="50" value="50" onchange="syncSettings()">
-    
-    <label>Смещение угла: <span id="aVal">0</span>°</label>
-    <input type="range" id="aSlide" min="0" max="360" value="0" onchange="syncSettings()">
-</div>
-
-<div class="card">
-    <h2>5. Power / Battery Status</h2>
-    <div class="telemetry" style="text-align: left; padding: 0 15px;">
-        <p><b>Battery Voltage:</b> <span id="batV">--</span> V</p>
-        <p><b>Charge Current:</b> <span id="batI">--</span> A</p>
-        <p><b>Input Voltage:</b> <span id="busV">--</span> V</p>
-        <p><b>Input Current:</b> <span id="busI">--</span> A</p>
-    </div>
-</div>
-
-<div class="card">
-    <h2>6. Система</h2>
-    <button class="warning" onclick="fetch('/ping').then(() => window.location.href='/update')">OTA Обновление прошивки</button>
+<div class="ota-footer">
+    <button onclick="fetch('/ping').then(()=>window.location.href='/update')">&#8679; OTA Firmware Update</button>
 </div>
 
 <script>
-    // === ВНУТРЕННИЙ ПАРСЕР GIF (БЕЗ ВНЕШНИХ БИБЛИОТЕК И IMAGEDECODER) ===
-    class MinimalGIF {
-        constructor(buffer) {
-            this.bytes = new Uint8Array(buffer);
-            this.pos = 0;
-            this.frames = [];
-            this.width = 0;
-            this.height = 0;
-            this.globalColorTable = null;
-        }
-        readByte() { return this.bytes[this.pos++]; }
-        readWord() { return this.readByte() | (this.readByte() << 8); }
-        readBytes(n) { let b = this.bytes.subarray(this.pos, this.pos + n); this.pos += n; return b; }
-        
-        parse() {
-            let sig = String.fromCharCode(...this.readBytes(6));
-            if (sig !== 'GIF87a' && sig !== 'GIF89a') throw new Error("Это не формат GIF!");
-            this.width = this.readWord();
-            this.height = this.readWord();
-            let packed = this.readByte();
-            this.readByte(); this.readByte();
-            
-            let gctFlag = (packed & 0x80) !== 0;
-            let gctSize = 2 << (packed & 7);
-            if (gctFlag) this.globalColorTable = this.readBytes(gctSize * 3);
-            
-            let delay = 100, disposal = 0, transIndex = -1;
-            
-            while (this.pos < this.bytes.length) {
-                let blockType = this.readByte();
-                if (blockType === 0x3B) break; // EOF
-                
-                if (blockType === 0x21) { // Extension
-                    let extType = this.readByte();
-                    if (extType === 0xF9) { // Graphics Control Extension
-                        this.readByte(); // Length
-                        let gce = this.readByte();
-                        disposal = (gce >> 2) & 7;
-                        delay = this.readWord() * 10;
-                        if (delay === 0) delay = 100; // Безопасный фоллбек
-                        let tColor = this.readByte();
-                        transIndex = (gce & 1) ? tColor : -1;
-                        this.readByte(); // Terminator
-                    } else {
-                        // Skip unhandled extensions
-                        let len; while ((len = this.readByte()) !== 0) this.pos += len;
-                    }
-                } else if (blockType === 0x2C) { // Image Descriptor
-                    let x = this.readWord(), y = this.readWord(), w = this.readWord(), h = this.readWord();
-                    let imgPacked = this.readByte();
-                    let lctFlag = (imgPacked & 0x80) !== 0;
-                    let lctSize = 2 << (imgPacked & 7);
-                    let lct = lctFlag ? this.readBytes(lctSize * 3) : this.globalColorTable;
-                    
-                    let minCodeSize = this.readByte();
-                    let imgData = [];
-                    let len;
-                    while ((len = this.readByte()) !== 0) {
-                        for(let i = 0; i < len; i++) imgData.push(this.bytes[this.pos + i]);
-                        this.pos += len;
-                    }
-                    let pixels = this.lzwDecode(minCodeSize, new Uint8Array(imgData), w * h);
-                    this.frames.push({x, y, w, h, pixels, lct, delay, disposal, transIndex});
-                }
+// ===================== GIF PARSER =====================
+class MinimalGIF {
+    constructor(b) { this.bytes=new Uint8Array(b); this.pos=0; this.frames=[]; this.width=0; this.height=0; this.globalColorTable=null; }
+    readByte() { return this.bytes[this.pos++]; }
+    readWord() { return this.readByte()|(this.readByte()<<8); }
+    readBytes(n) { let b=this.bytes.subarray(this.pos,this.pos+n); this.pos+=n; return b; }
+
+    parse() {
+        let sig=String.fromCharCode(...this.readBytes(6));
+        if(sig!=='GIF87a'&&sig!=='GIF89a') throw new Error("Not a GIF");
+        this.width=this.readWord(); this.height=this.readWord();
+        let packed=this.readByte(); this.readByte(); this.readByte();
+        if(packed&0x80) this.globalColorTable=this.readBytes((2<<(packed&7))*3);
+        let delay=100,disposal=0,transIndex=-1;
+        while(this.pos<this.bytes.length){
+            let bt=this.readByte();
+            if(bt===0x3B) break;
+            if(bt===0x21){
+                let et=this.readByte();
+                if(et===0xF9){
+                    this.readByte(); let gce=this.readByte();
+                    disposal=(gce>>2)&7; delay=this.readWord()*10||100;
+                    let tc=this.readByte(); transIndex=(gce&1)?tc:-1; this.readByte();
+                } else { let l; while((l=this.readByte())!==0) this.pos+=l; }
+            } else if(bt===0x2C){
+                let x=this.readWord(),y=this.readWord(),w=this.readWord(),h=this.readWord();
+                let ip=this.readByte(), lctF=(ip&0x80)!==0;
+                let lct=lctF?this.readBytes((2<<(ip&7))*3):this.globalColorTable;
+                let mcs=this.readByte(), id=[],l;
+                while((l=this.readByte())!==0){for(let i=0;i<l;i++) id.push(this.bytes[this.pos+i]); this.pos+=l;}
+                let pix=this.lzwDecode(mcs,new Uint8Array(id),w*h);
+                this.frames.push({x,y,w,h,pixels:pix,lct,delay,disposal,transIndex});
             }
         }
-        
-        lzwDecode(minCodeSize, data, pixelCount) {
-            const clearCode = 1 << minCodeSize;
-            const eoiCode = clearCode + 1;
-            let codeSize = minCodeSize + 1;
-            let dictSize = clearCode + 2;
-            let dict = [];
-            for (let i = 0; i < clearCode; i++) dict[i] = [i];
-            
-            let output = new Uint8Array(pixelCount);
-            let outPos = 0;
-            let bitPos = 0;
-            
-            function readCode() {
-                let bytePos = bitPos >> 3;
-                let bitOffset = bitPos & 7;
-                if (bytePos >= data.length) return -1;
-                let val = data[bytePos] | (data[bytePos + 1] !== undefined ? data[bytePos + 1] << 8 : 0) | (data[bytePos + 2] !== undefined ? data[bytePos + 2] << 16 : 0);
-                let code = (val >> bitOffset) & ((1 << codeSize) - 1);
-                bitPos += codeSize;
-                return code;
-            }
-            
-            let oldCode = -1;
-            while (outPos < pixelCount) {
-                let code = readCode();
-                if (code === -1 || code === eoiCode) break;
-                if (code === clearCode) {
-                    codeSize = minCodeSize + 1;
-                    dictSize = clearCode + 2;
-                    dict.length = clearCode + 2; 
-                    oldCode = -1;
-                    continue;
-                }
-                
-                let sequence;
-                if (code < dictSize) {
-                    sequence = dict[code];
-                } else if (code === dictSize && oldCode !== -1) {
-                    sequence = Array.from(dict[oldCode]);
-                    sequence.push(dict[oldCode][0]);
-                } else {
-                    break;
-                }
-                
-                output.set(sequence, outPos);
-                outPos += sequence.length;
-                
-                if (oldCode !== -1 && dictSize < 4096) {
-                    let newEntry = Array.from(dict[oldCode]);
-                    newEntry.push(sequence[0]);
-                    dict[dictSize++] = newEntry;
-                    if (dictSize === (1 << codeSize) && codeSize < 12) codeSize++;
-                }
-                oldCode = code;
-            }
-            return output;
+    }
+
+    lzwDecode(mcs,data,pc){
+        const cc=1<<mcs,eoi=cc+1; let cs=mcs+1,ds=cc+2,dict=[];
+        for(let i=0;i<cc;i++) dict[i]=[i];
+        let out=new Uint8Array(pc),op=0,bp=0;
+        function rc(){
+            let by=bp>>3,bo=bp&7; if(by>=data.length) return -1;
+            let v=data[by]|(data[by+1]!==undefined?data[by+1]<<8:0)|(data[by+2]!==undefined?data[by+2]<<16:0);
+            let c=(v>>bo)&((1<<cs)-1); bp+=cs; return c;
         }
-    }
-
-    // Рендеринг всех распакованных кадров GIF с переводом в полярные координаты
-    function renderGIFFrames(gif) {
-        let canvas = document.createElement('canvas');
-        canvas.width = gif.width; canvas.height = gif.height;
-        let ctx = canvas.getContext('2d', {willReadFrequently: true});
-        let framesData = [];
-        
-        for (let i = 0; i < gif.frames.length; i++) {
-            let f = gif.frames[i];
-            // Disposal Method 2: Очистка до фона (прозрачного)
-            if (f.disposal === 2 && i > 0) {
-                 ctx.clearRect(gif.frames[i-1].x, gif.frames[i-1].y, gif.frames[i-1].w, gif.frames[i-1].h);
-            }
-            
-            let imgData = ctx.createImageData(f.w, f.h);
-            let p = 0;
-            for (let j = 0; j < f.pixels.length; j++) {
-                let c = f.pixels[j];
-                if (c !== f.transIndex && f.lct) {
-                    imgData.data[p++] = f.lct[c*3];
-                    imgData.data[p++] = f.lct[c*3+1];
-                    imgData.data[p++] = f.lct[c*3+2];
-                    imgData.data[p++] = 255;
-                } else {
-                    imgData.data[p++] = 0; imgData.data[p++] = 0; imgData.data[p++] = 0; imgData.data[p++] = 0; 
-                }
-            }
-            
-            let tempCanvas = document.createElement('canvas');
-            tempCanvas.width = f.w; tempCanvas.height = f.h;
-            tempCanvas.getContext('2d').putImageData(imgData, 0, 0);
-            ctx.drawImage(tempCanvas, f.x, f.y);
-            
-            // Преобразование текущего кадра в полярную систему 200x200
-            let sCanvas = document.createElement('canvas');
-            sCanvas.width = 200; sCanvas.height = 200;
-            let sCtx = sCanvas.getContext('2d');
-            let size = Math.min(gif.width, gif.height);
-            sCtx.drawImage(canvas, (gif.width - size)/2, (gif.height - size)/2, size, size, 0, 0, 200, 200);
-            
-            let sData = sCtx.getImageData(0, 0, 200, 200).data;
-            let polarBuf = new Uint8Array(120 * 38 * 3);
-            let offset = 0;
-            for (let sector = 0; sector < 120; sector++) {
-                const angle = (sector / 120) * 2 * Math.PI;
-                for (let r = 0; r < 38; r++) {
-                    // Внутренний радиус 60мм, внешний 300мм. В пикселях: от 20 до 100.
-                    // У нас 38 диодов (индексы от 0 до 37).
-                    const minRadiusPx = 20; 
-                    const maxRadiusPx = 100;
-                    const radiusPx = minRadiusPx + (r / 37) * (maxRadiusPx - minRadiusPx);
-                    const x = Math.floor(100 + radiusPx * Math.cos(angle));
-                    const y = Math.floor(100 + radiusPx * Math.sin(angle));
-                    if (x >= 0 && x < 200 && y >= 0 && y < 200) {
-                        const idx = (y * 200 + x) * 4;
-                        polarBuf[offset++] = sData[idx]; 
-                        polarBuf[offset++] = sData[idx + 1]; 
-                        polarBuf[offset++] = sData[idx + 2]; 
-                    } else {
-                        polarBuf[offset++] = 0; polarBuf[offset++] = 0; polarBuf[offset++] = 0;
-                    }
-                }
-            }
-            framesData.push({ delay: f.delay, data: polarBuf });
+        let oc=-1;
+        while(op<pc){
+            let c=rc(); if(c===-1||c===eoi) break;
+            if(c===cc){cs=mcs+1;ds=cc+2;dict.length=cc+2;oc=-1;continue;}
+            let seq; if(c<ds) seq=dict[c]; else if(c===ds&&oc!==-1){seq=Array.from(dict[oc]);seq.push(dict[oc][0]);}else break;
+            out.set(seq,op); op+=seq.length;
+            if(oc!==-1&&ds<4096){let ne=Array.from(dict[oc]);ne.push(seq[0]);dict[ds++]=ne;if(ds===(1<<cs)&&cs<12)cs++;}
+            oc=c;
         }
-        return framesData;
+        return out;
     }
-    // ===================================================================
+}
 
-    let currentFoundMAC = "";
-    window.currentUploadBuffer = null; // Глобальный буфер для анимаций
-
-    // --- ПОИСК И СОПРЯЖЕНИЕ ---
-    function scanSlaves() {
-        document.getElementById('scanStatus').innerText = "Поиск эфира...";
-        document.getElementById('foundDevice').style.display = "none";
-        fetch('/scan_slaves').then(() => {
-            setTimeout(() => {
-                fetch('/scan_results').then(res => res.json()).then(data => {
-                    if (data.mac !== "") {
-                        document.getElementById('scanStatus').innerText = "Устройство найдено!";
-                        document.getElementById('devName').innerText = data.name + " (" + data.mac + ")";
-                        currentFoundMAC = data.mac;
-                        document.getElementById('foundDevice').style.display = "block";
-                    } else {
-                        document.getElementById('scanStatus').innerText = "Никто не найден. Убедитесь, что второе колесо горит синим.";
-                    }
-                });
-            }, 1000);
-        });
-    }
-
-    function pairDevice() {
-        fetch('/pair?mac=' + currentFoundMAC).then(res => {
-            if(res.ok) {
-                document.getElementById('scanStatus').innerText = "ПАРА СОЗДАНА! MAC сохранен.";
-                document.getElementById('foundDevice').style.display = "none";
-            }
-        });
-    }
-
-    window.onload = () => {
-        loadFiles();
-        fetch('/scan_results').then(res => res.json()).then(data => {
-            if (data.paired) document.getElementById('scanStatus').innerText = "Активная пара: Установлена";
-        });
-        
-        // Запуск телеметрии
-        setInterval(updateBatteryStatus, 2000);
-        updateBatteryStatus();
-    };
-
-    // --- ТЕЛЕМЕТРИЯ БАТАРЕИ ---
-    function updateBatteryStatus() {
-        fetch('/battery')
-            .then(res => res.json())
-            .then(data => {
-                document.getElementById('batV').innerText = (data.vbat / 1000).toFixed(2);
-                document.getElementById('batI').innerText = (data.ibat / 1000).toFixed(2);
-                document.getElementById('busV').innerText = (data.vbus / 1000).toFixed(2);
-                document.getElementById('busI').innerText = (data.ibus / 1000).toFixed(2);
-            })
-            .catch(err => console.log("Battery fetch error:", err));
-    }
-
-    // --- ЗАГРУЗКА ФАЙЛА (С ПОДДЕРЖКОЙ GIF АНИМАЦИИ) ---
-    const ctx = document.getElementById('preview').getContext('2d');
-    
-    document.getElementById('fileInput').addEventListener('change', function(e) {
-        const file = e.target.files[0];
-        if (!file) return;
-        document.getElementById('preview').style.display = 'inline-block';
-        window.currentUploadBuffer = null; // Сброс
-        
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            if (file.name.toLowerCase().endsWith('.gif')) {
-                // Это GIF - парсим его нашим собственным парсером
-                try {
-                    document.getElementById('uploadStatus').innerText = "Распаковка кадров GIF...";
-                    let gif = new MinimalGIF(event.target.result);
-                    gif.parse();
-                    let frames = renderGIFFrames(gif);
-                    
-                    // Формируем комбинированный ANIM-буфер для ESP32
-                    let totalSize = 8 + frames.length * 120 * 38 * 3;
-                    let outBuf = new Uint8Array(totalSize);
-                    outBuf[0] = 65; outBuf[1] = 78; outBuf[2] = 73; outBuf[3] = 77; // "ANIM"
-                    outBuf[4] = frames.length & 0xFF; outBuf[5] = (frames.length >> 8) & 0xFF;
-                    let defaultDelay = frames[0].delay || 100;
-                    outBuf[6] = defaultDelay & 0xFF; outBuf[7] = (defaultDelay >> 8) & 0xFF;
-                    
-                    let offset = 8;
-                    for (let f of frames) {
-                        outBuf.set(f.data, offset);
-                        offset += f.data.length;
-                    }
-                    window.currentUploadBuffer = outBuf;
-                    document.getElementById('uploadStatus').innerText = `GIF обработан (Кадров: ${frames.length}). Готов к загрузке.`;
-                } catch(err) {
-                    alert("Ошибка при разборе GIF: " + err.message);
-                    document.getElementById('uploadStatus').innerText = "Ошибка парсинга.";
-                }
+// ===================== POLAR MAPPING =====================
+// 360 sectors × 38 LEDs = 41040 bytes == FRAME_SIZE on device
+// Image is sampled as a centered square; inner cutout mirrors physical LED offset from hub
+function toPolarBuffer(srcCanvas) {
+    const W = srcCanvas.width, H = srcCanvas.height;
+    const ctx = srcCanvas.getContext('2d', {willReadFrequently: true});
+    const sData = ctx.getImageData(0, 0, W, H).data;
+    const buf = new Uint8Array(360 * 38 * 3);
+    let off = 0;
+    const minR = W * 0.10;   // inner cutout  (~60mm physical)
+    const maxR = W * 0.495;  // outer edge    (~300mm physical)
+    for (let sector = 0; sector < 360; sector++) {
+        const angle = (sector / 360) * 2 * Math.PI;
+        const ca = Math.cos(angle), sa = Math.sin(angle);
+        for (let r = 0; r < 38; r++) {
+            const rad = minR + (r / 37) * (maxR - minR);
+            const px = Math.round(W / 2 + rad * ca);
+            const py = Math.round(H / 2 + rad * sa);
+            if (px >= 0 && px < W && py >= 0 && py < H) {
+                const idx = (py * W + px) * 4;
+                buf[off++] = sData[idx];     // R
+                buf[off++] = sData[idx + 1]; // G
+                buf[off++] = sData[idx + 2]; // B
             } else {
-                // Статичная картинка: загружаем через Image(), как раньше
-                const img = new Image();
-                img.onload = () => {
-                    const size = Math.min(img.width, img.height);
-                    ctx.clearRect(0, 0, 200, 200);
-                    ctx.drawImage(img, (img.width - size)/2, (img.height - size)/2, size, size, 0, 0, 200, 200);
-                    document.getElementById('uploadStatus').innerText = "Картинка загружена. Готова к конвертации.";
-                }
-                img.src = event.target.result;
+                buf[off++] = 0; buf[off++] = 0; buf[off++] = 0;
             }
+        }
+    }
+    return buf;
+}
+
+// Render all GIF frames to polar buffers
+function renderGIFFrames(gif) {
+    const canvas = document.createElement('canvas');
+    canvas.width = gif.width; canvas.height = gif.height;
+    const ctx = canvas.getContext('2d', {willReadFrequently: true});
+    const sq = Math.min(gif.width, gif.height);
+    // Working canvas — square, centered crop, 200×200
+    const work = document.createElement('canvas');
+    work.width = 200; work.height = 200;
+    const wCtx = work.getContext('2d', {willReadFrequently: true});
+    const frames = [];
+
+    for (let i = 0; i < gif.frames.length; i++) {
+        const f = gif.frames[i];
+        if (f.disposal === 2 && i > 0) {
+            const pf = gif.frames[i-1];
+            ctx.clearRect(pf.x, pf.y, pf.w, pf.h);
+        }
+        const imgData = ctx.createImageData(f.w, f.h);
+        let p = 0;
+        for (let j = 0; j < f.pixels.length; j++) {
+            const c = f.pixels[j];
+            if (c !== f.transIndex && f.lct) {
+                imgData.data[p++] = f.lct[c*3];
+                imgData.data[p++] = f.lct[c*3+1];
+                imgData.data[p++] = f.lct[c*3+2];
+                imgData.data[p++] = 255;
+            } else { imgData.data[p++]=0; imgData.data[p++]=0; imgData.data[p++]=0; imgData.data[p++]=0; }
+        }
+        const tmp = document.createElement('canvas');
+        tmp.width = f.w; tmp.height = f.h;
+        tmp.getContext('2d').putImageData(imgData, 0, 0);
+        ctx.drawImage(tmp, f.x, f.y);
+        // Center-crop to square, scale to 200×200
+        wCtx.clearRect(0, 0, 200, 200);
+        wCtx.drawImage(canvas, (gif.width - sq)/2, (gif.height - sq)/2, sq, sq, 0, 0, 200, 200);
+        frames.push({ delay: f.delay, data: toPolarBuffer(work) });
+    }
+    return frames;
+}
+
+// ===================== STATE =====================
+window.currentUploadBuffer = null;
+const previewCanvas = document.getElementById('preview'); // 200×200 buffer, 160×160 display
+const previewCtx = previewCanvas.getContext('2d', {willReadFrequently: true});
+
+// ===================== FILE INPUT =====================
+document.getElementById('fileInput').addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    previewCanvas.style.display = 'inline-block';
+    window.currentUploadBuffer = null;
+    setStatus('uploadStatus', `Reading "${file.name}"...`, '');
+
+    if (file.name.toLowerCase().endsWith('.gif')) {
+        const reader = new FileReader();
+        reader.onload = ev => {
+            try {
+                setStatus('uploadStatus', 'Decoding GIF frames...', '');
+                const gif = new MinimalGIF(ev.target.result);
+                gif.parse();
+                const frames = renderGIFFrames(gif);
+                const frameBytes = 360 * 38 * 3;
+                const totalSize = 8 + frames.length * frameBytes;
+                const outBuf = new Uint8Array(totalSize);
+                outBuf[0]=65;outBuf[1]=78;outBuf[2]=73;outBuf[3]=77; // "ANIM"
+                outBuf[4]=frames.length&0xFF; outBuf[5]=(frames.length>>8)&0xFF;
+                const dd = frames[0].delay || 100;
+                outBuf[6]=dd&0xFF; outBuf[7]=(dd>>8)&0xFF;
+                let off = 8;
+                for (const f of frames) { outBuf.set(f.data, off); off += f.data.length; }
+                window.currentUploadBuffer = outBuf;
+                setStatus('uploadStatus', `GIF ready — ${frames.length} frame(s), ${(totalSize/1024).toFixed(1)} kB`, 'ok');
+            } catch(err) { setStatus('uploadStatus', 'GIF parse error: ' + err.message, 'err'); }
         };
-        
-        // Для предпросмотра GIF тоже загружаем его как DataURL в img
-        const imgReader = new FileReader();
-        imgReader.onload = (ev) => {
+        reader.readAsArrayBuffer(file);
+        // Preview first GIF frame via browser
+        const r2 = new FileReader();
+        r2.onload = ev => {
+            const img = new Image();
+            img.onload = () => drawCenteredSquare(img, previewCtx, 200);
+            img.src = ev.target.result;
+        };
+        r2.readAsDataURL(file);
+    } else {
+        const reader = new FileReader();
+        reader.onload = ev => {
             const img = new Image();
             img.onload = () => {
-                const size = Math.min(img.width, img.height);
-                ctx.clearRect(0, 0, 200, 200);
-                ctx.drawImage(img, (img.width - size)/2, (img.height - size)/2, size, size, 0, 0, 200, 200);
-            }
+                drawCenteredSquare(img, previewCtx, 200);
+                setStatus('uploadStatus', `Image loaded (${img.width}×${img.height}). Ready to upload.`, 'ok');
+            };
             img.src = ev.target.result;
-        }
-        
-        if (file.name.toLowerCase().endsWith('.gif')) {
-            reader.readAsArrayBuffer(file);
-            imgReader.readAsDataURL(file); // Для канвас-превью первого кадра
+        };
+        reader.readAsDataURL(file);
+    }
+});
+
+// Draw image centered and square-cropped into a ctx of given size
+function drawCenteredSquare(img, ctx, size) {
+    const sq = Math.min(img.width, img.height);
+    const sx = (img.width  - sq) / 2;
+    const sy = (img.height - sq) / 2;
+    ctx.clearRect(0, 0, size, size);
+    ctx.drawImage(img, sx, sy, sq, sq, 0, 0, size, size);
+}
+
+// ===================== UPLOAD =====================
+async function processAndUpload() {
+    const fileEl = document.getElementById('fileInput');
+    if (!fileEl.files[0]) { setStatus('uploadStatus', 'Select a file first.', 'err'); return; }
+    const file = fileEl.files[0];
+    const isGif = file.name.toLowerCase().endsWith('.gif');
+    const prefix = isGif ? 'gif_' : 'img_';
+    const baseName = file.name.replace(/\.[^/.]+$/, '');
+    const nameInput = document.getElementById('fileNameInput').value.trim();
+    const fileName = prefix + (nameInput || baseName) + '.bin';
+
+    setStatus('uploadStatus', `Converting → ${fileName}...`, '');
+
+    let outputBuffer;
+    if (window.currentUploadBuffer) {
+        outputBuffer = window.currentUploadBuffer;
+    } else {
+        // Static image: use previewCanvas (200×200 buffer with centered crop)
+        outputBuffer = toPolarBuffer(previewCanvas);
+    }
+
+    setStatus('uploadStatus', `Uploading ${(outputBuffer.length/1024).toFixed(1)} kB → ${fileName}...`, '');
+    try {
+        const res = await fetch(`/upload?name=${encodeURIComponent(fileName)}`, { method: 'POST', body: outputBuffer });
+        if (res.ok) {
+            setStatus('uploadStatus', `Uploaded: ${fileName}`, 'ok');
+            document.getElementById('fileNameInput').value = '';
+            loadFiles(); loadFSInfo();
         } else {
-            reader.readAsDataURL(file);
+            setStatus('uploadStatus', 'Upload failed (server error).', 'err');
         }
+    } catch(e) { setStatus('uploadStatus', 'Upload error: ' + e.message, 'err'); }
+}
+
+// ===================== FILE MANAGER =====================
+function loadFiles() {
+    fetch('/list').then(r => r.json()).then(files => {
+        const list = document.getElementById('fileList');
+        if (!files.length) {
+            list.innerHTML = '<div style="color:var(--dim);font-size:0.72em;padding:8px;">No files stored.</div>';
+            return;
+        }
+        list.innerHTML = files.map(f =>
+            `<div class="file-item">
+                <span class="fname">${f.name}</span>
+                <span class="fsize">${(f.size/1024).toFixed(1)}&nbsp;kB</span>
+                <div class="acts">
+                    <button onclick="playFile('${f.name}')">&#9654;</button>
+                    <button class="danger" onclick="deleteFile('${f.name}')">&#10005;</button>
+                </div>
+             </div>`
+        ).join('');
+    });
+}
+
+function loadFSInfo() {
+    fetch('/fs_info').then(r => r.json()).then(d => {
+        const pct = d.total ? (d.used / d.total * 100) : 0;
+        document.getElementById('fsFill').style.width = pct.toFixed(1) + '%';
+        document.getElementById('fsLabel').textContent =
+            `${(d.free/1024).toFixed(0)} kB free of ${(d.total/1024).toFixed(0)} kB`;
+    });
+}
+
+function playFile(name)   { fetch(`/play?file=${encodeURIComponent(name)}`); }
+function stopDisplay()    { fetch('/stop'); }
+function deleteFile(name) {
+    if (confirm('Delete ' + name + '?')) {
+        fetch(`/delete?file=${encodeURIComponent(name)}`).then(() => { loadFiles(); loadFSInfo(); });
+    }
+}
+
+// ===================== DUAL-RANGE BRIGHTNESS SLIDER =====================
+function pct(v) { return (v - 1) / 49 * 100; }
+
+function updateDualRange() {
+    const minV = +document.getElementById('bMinSlide').value;
+    const maxV = +document.getElementById('bMaxSlide').value;
+    const fill = document.getElementById('drFill');
+    fill.style.left  = pct(minV) + '%';
+    fill.style.width = (pct(maxV) - pct(minV)) + '%';
+    document.getElementById('bMinVal').textContent = minV;
+    document.getElementById('bMaxVal').textContent = maxV;
+}
+
+function updateBriCursor(val) {
+    document.getElementById('drCursor').style.left = pct(val) + '%';
+    document.getElementById('briVal').textContent = val;
+}
+
+document.getElementById('bMinSlide').addEventListener('input', function() {
+    const maxSlide = document.getElementById('bMaxSlide');
+    if (+this.value > +maxSlide.value) this.value = maxSlide.value;
+    updateDualRange();
+});
+document.getElementById('bMinSlide').addEventListener('change', syncSettings);
+
+document.getElementById('bMaxSlide').addEventListener('input', function() {
+    const minSlide = document.getElementById('bMinSlide');
+    if (+this.value < +minSlide.value) this.value = minSlide.value;
+    updateDualRange();
+});
+document.getElementById('bMaxSlide').addEventListener('change', syncSettings);
+
+// ===================== SETTINGS =====================
+function syncSettings() {
+    const bmin = document.getElementById('bMinSlide').value;
+    const bmax = document.getElementById('bMaxSlide').value;
+    const a    = document.getElementById('aSlide').value;
+    fetch(`/settings?bmin=${bmin}&bmax=${bmax}&a=${a}`);
+}
+
+function loadSettings() {
+    fetch('/get_settings').then(r => r.json()).then(d => {
+        document.getElementById('bMinSlide').value = d.bmin;
+        document.getElementById('bMaxSlide').value = d.bmax;
+        document.getElementById('aSlide').value    = d.angle;
+        document.getElementById('aVal').textContent = d.angle;
+        updateDualRange();
+        updateBriCursor(d.brightness);
+    }).catch(() => {});
+}
+
+// ===================== BATTERY =====================
+function updateBatteryStatus() {
+    fetch('/battery').then(r => r.json()).then(d => {
+        document.getElementById('batV').textContent = (d.vbat/1000).toFixed(2);
+        document.getElementById('batI').textContent = (d.ibat/1000).toFixed(2);
+        document.getElementById('busV').textContent = (d.vbus/1000).toFixed(2);
+        document.getElementById('busI').textContent = (d.ibus/1000).toFixed(2);
+    }).catch(() => {});
+}
+
+// ===================== HELPERS =====================
+function setStatus(id, msg, cls) {
+    const el = document.getElementById(id);
+    el.textContent = msg;
+    el.className = 'status-bar' + (cls ? ' ' + cls : '');
+}
+
+// ===================== INIT =====================
+window.onload = () => {
+    fetch('/ping').then(() => {
+        document.getElementById('deviceName').textContent = window.location.hostname || 'pov-wheel';
     });
 
-    async function processAndUpload() {
-        if (!document.getElementById('fileInput').files[0]) return alert("Выберите файл!");
-        document.getElementById('uploadStatus').innerText = "Конвертация и загрузка...";
-        
-        let outputBuffer;
-        
-        // Если это анимация (буфер уже сформирован парсером MinimalGIF)
-        if (window.currentUploadBuffer) {
-            outputBuffer = window.currentUploadBuffer;
-        } 
-        // Если это статичная картинка
-        else {
-            const imgData = ctx.getImageData(0, 0, 200, 200);
-            const data = imgData.data;
-            outputBuffer = new Uint8Array(120 * 38 * 3);
-            let offset = 0;
-            
-            for (let sector = 0; sector < 120; sector++) {
-                const angle = (sector / 120) * 2 * Math.PI;
-                for (let r = 0; r < 38; r++) {
-                    // Коррекция геометрии: вырезаем центральную нерабочую зону
-                    const minRadiusPx = 20; 
-                    const maxRadiusPx = 100;
-                    const radiusPx = minRadiusPx + (r / 37) * (maxRadiusPx - minRadiusPx);
-                    const x = Math.floor(100 + radiusPx * Math.cos(angle));
-                    const y = Math.floor(100 + radiusPx * Math.sin(angle));
-                    if (x >= 0 && x < 200 && y >= 0 && y < 200) {
-                        const idx = (y * 200 + x) * 4;
-                        outputBuffer[offset++] = data[idx]; outputBuffer[offset++] = data[idx + 1]; outputBuffer[offset++] = data[idx + 2]; 
-                    } else {
-                        outputBuffer[offset++] = 0; outputBuffer[offset++] = 0; outputBuffer[offset++] = 0;
-                    }
-                }
-            }
-        }
+    loadFiles();
+    loadFSInfo();
+    loadSettings();
+    updateBatteryStatus();
 
-        // Логика захвата имени файла
-        let nameInput = document.getElementById('fileNameInput').value.trim();
-        const fileName = nameInput ? (nameInput + ".bin") : ("img_" + Date.now() + ".bin");
-        document.getElementById('uploadStatus').innerText = "Загрузка в память устройства...";
-        
-        try {
-            const response = await fetch(`/upload?name=${fileName}`, { method: 'POST', body: outputBuffer });
-            if (response.ok) {
-                document.getElementById('uploadStatus').innerText = "Успешно!";
-                document.getElementById('fileNameInput').value = ""; // Очищаем после загрузки
-                loadFiles(); 
-            }
-        } catch (e) { document.getElementById('uploadStatus').innerText = "Ошибка загрузки!"; }
-    }
-
-    // --- ФАЙЛОВЫЙ МЕНЕДЖЕР ---
-    function loadFiles() {
-        fetch('/list').then(r => r.json()).then(files => {
-            const list = document.getElementById('fileList');
-            list.innerHTML = "";
-            if (files.length === 0) list.innerHTML = "<i>Память пуста</i>";
-            files.forEach(f => {
-                list.innerHTML += `
-                    <div class="file-item">
-                        <span>${f}</span>
-                        <div>
-                            <button onclick="playFile('${f}')">Показать</button>
-                            <button onclick="deleteFile('${f}')" class="danger">X</button>
-                        </div>
-                    </div>`;
-            });
-        });
-    }
-
-    function playFile(name) {
-        fetch(`/play?file=${name}`).then(() => alert("Выведено на экран!"));
-    }
-
-    function stopDisplay() {
-        fetch('/stop').then(() => {
-            alert("Рендеринг остановлен!");
-            document.getElementById('uploadStatus').innerText = "Ожидание файла...";
-        });
-    }
-
-    function deleteFile(name) {
-        if(confirm("Удалить " + name + "?")) {
-            fetch(`/delete?file=${name}`).then(() => loadFiles());
-        }
-    }
-
-    // --- НАСТРОЙКИ ---
-    function syncSettings() {
-        const bmin = document.getElementById('bMinSlide').value;
-        const bmax = document.getElementById('bMaxSlide').value;
-        const a = document.getElementById('aSlide').value;
-        
-        document.getElementById('bMinVal').innerText = bmin;
-        document.getElementById('bMaxVal').innerText = bmax;
-        document.getElementById('aVal').innerText = a;
-        
-        fetch(`/settings?bmin=${bmin}&bmax=${bmax}&a=${a}`);
-    }
+    setInterval(() => {
+        updateBatteryStatus();
+        fetch('/get_settings').then(r => r.json()).then(d => updateBriCursor(d.brightness)).catch(() => {});
+    }, 2000);
+};
 </script>
 </body>
 </html>

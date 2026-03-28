@@ -34,8 +34,9 @@ extern uint8_t* frameBuffer;
 extern volatile bool newFrameReady;
 extern CRGB leds[];
 extern String hostName;
-extern bool isSlaveMode;
 extern bool force_stop_display;
+extern bool peripherals_active;
+extern volatile bool blink_ok_flag;
 
 // --- ПЕРЕМЕННЫЕ АНИМАЦИИ (GIF) ---
 extern uint32_t currentFrameIndex;
