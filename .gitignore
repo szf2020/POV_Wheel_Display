@@ -1,4 +1,45 @@
 # =========================
+# VS Code & IntelliSense
+# =========================
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# Локальная история файлов (расширение Local History)
+.history/
+
+# Кэш C/C++ расширения
+.ipch/
+*.VC.db
+*.opensdf
+*.sdf
+*.suo
+
+# =========================
+# PlatformIO (Самый частый сборщик для ESP32 в VS Code)
+# =========================
+.pio/
+.piolibdeps/
+
+# =========================
+# ESP-IDF / Standard C++ Build (Если собираешь без PlatformIO)
+# =========================
+build/
+sdkconfig.old
+*.elf
+*.bin
+*.map
+*.hex
+*.uf2
+*.o
+*.obj
+*.a
+*.out
+
+# =========================
 # Платформо-зависимые файлы (OS)
 # =========================
 .DS_Store
@@ -11,45 +52,15 @@ ehthumbs.db
 desktop.ini
 
 # =========================
-# PlatformIO
+# POV Display File System (LittleFS / SPIFFS)
 # =========================
-.pio/
-.pioenvs/
-.piolibdeps/
-.vscode/
-
-# =========================
-# Arduino IDE 
-# =========================
-build/
-*.elf
-*.hex
-*.bin
-*.uf2
-*.eep
-*.o
-*.obj
-*.a
-*.out
-
-# =========================
-# Файлы файловой системы (LittleFS / SPIFFS)
-# =========================
-# Игнорируем случайно закинутые картинки или бинарники анимаций в папке data (если она есть),
-# чтобы они не раздували вес Git-репозитория.
+# Игнорируем случайно закинутые картинки или бинарники анимаций
 data/*.bin
 data/*.gif
 data/*.jpg
 data/*.png
 
-# НО принудительно оставляем твой веб-интерфейс!
+# НО принудительно оставляем файлы веб-интерфейса!
 !data/index.html
 !data/*.css
 !data/*.js
-
-# =========================
-# Логи и временные файлы конфигураций
-# =========================
-*.log
-*.sqlite3
-sdkconfig.old
