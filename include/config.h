@@ -37,6 +37,10 @@ extern String hostName;
 extern bool force_stop_display;
 extern bool peripherals_active;
 extern volatile bool blink_ok_flag;
+extern volatile float last_lux_value; // Последнее валидное показание BH1750 (lux)
+extern volatile bool blink_wifi_ok_flag;    // Зеленый: подключились к домашней сети
+extern volatile bool blink_wifi_fail_flag;  // Красный: не удалось подключиться к сети
+extern volatile bool blink_ap_client_flag;  // Желтый: клиент подключился к точке доступа
 
 // --- ПЕРЕМЕННЫЕ АНИМАЦИИ (GIF) ---
 extern uint32_t currentFrameIndex;

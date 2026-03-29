@@ -63,6 +63,7 @@ volatile bool bq_interrupt_flag = false;
 volatile uint32_t last_dcdc_off_time = 0;
 bool peripherals_active = true;
 volatile bool blink_ok_flag = false;
+volatile float last_lux_value = 0.0f; // Последнее валидное показание BH1750 (lux)
 
 // --- ESP-IDF SPI DMA для SK9822 ---
 #define SK9822_END_FRAMES 20
@@ -417,7 +418,8 @@ void setup() {
     LittleFS.begin(true);
 
     initBQ25792();
-    lightMeter.begin(BH1750::CONTINUOUS_HIGH_RES_MODE, 0x23, &Wire);
+    // LOW_RES_MODE: 16 мс на замер (против 120 мс у HIGH_RES) — нужно для быстрой реакции
+    lightMeter.begin(BH1750::CONTINUOUS_LOW_RES_MODE, 0x23, &Wire);
 
     setupNetwork();
 
@@ -666,18 +668,22 @@ void loop() {
         }
     }
 
-    // --- 5. Авто-яркость (работает всегда, чтобы актуальное значение было готово к рендерингу) ---
+    // --- 5. Авто-яркость ---
+    // Формула: actual = constrain(lux/1000 * max_brightness, min_brightness, max_brightness)
+    // Пример: lux=800, max=40, min=20 → constrain(0.8*40, 20, 40) = 32%
+    // REF_LUX = 1000: при 1000 lux яркость = max; ниже min никогда не опускается
     {
         static uint32_t last_lux_time = 0;
-        if (now_ms - last_lux_time > 200) {
-            float lux = lightMeter.readLightLevel();
-            if (lux >= 0) {
-                uint8_t target_b = map((long)lux, 0, 1000, min_brightness, max_brightness);
-                target_b = constrain(target_b, min_brightness, max_brightness);
-                if (target_b > 50) target_b = 50;
-                global_brightness = target_b;
-            }
+        if (now_ms - last_lux_time >= 50) {
             last_lux_time = now_ms;
+            float lux = lightMeter.readLightLevel();
+            if (lux >= 0) last_lux_value = lux; // Сохраняем только валидные показания
+            float ratio = constrain(last_lux_value / 1000.0f, 0.0f, 1.0f);
+            global_brightness = (uint8_t)constrain(
+                (int)(ratio * (float)max_brightness),
+                (int)min_brightness,
+                (int)max_brightness
+            );
         }
     }
 
@@ -768,5 +774,45 @@ void loop() {
             delay(80);
         }
     }
+
+    // --- 10. LED-индикация статуса WiFi ---
+    // Вспомогательные макросы: временно включаем питание LED, если оно было выключено
+    #define WIFI_BLINK_POWER_ON  bool _was_active = peripherals_active; \
+        if (!_was_active) { digitalWrite(PIN_EN_DCDC, HIGH); digitalWrite(PIN_EN_LEVEL_SHIFT, HIGH); delay(15); }
+    #define WIFI_BLINK_POWER_OFF \
+        fill_solid(leds, NUM_LEDS, CRGB::Black); sendLEDs_DMA(); \
+        if (!_was_active) { digitalWrite(PIN_EN_DCDC, LOW); digitalWrite(PIN_EN_LEVEL_SHIFT, LOW); last_dcdc_off_time = millis(); }
+
+    // Зеленое плавное мигание: подключились к домашней сети WiFi
+    if (blink_wifi_ok_flag) {
+        blink_wifi_ok_flag = false;
+        WIFI_BLINK_POWER_ON
+        for (int b = 0; b <= 25; b++) { fill_solid(leds, NUM_LEDS, CRGB(0, b, 0)); sendLEDs_DMA(); delay(8); }
+        for (int b = 25; b >= 0; b--) { fill_solid(leds, NUM_LEDS, CRGB(0, b, 0)); sendLEDs_DMA(); delay(8); }
+        WIFI_BLINK_POWER_OFF
+    }
+
+    // Красное тройное мигание: подключение к домашней сети не удалось
+    if (blink_wifi_fail_flag) {
+        blink_wifi_fail_flag = false;
+        WIFI_BLINK_POWER_ON
+        for (int rep = 0; rep < 3; rep++) {
+            fill_solid(leds, NUM_LEDS, CRGB(25, 0, 0)); sendLEDs_DMA(); delay(150);
+            fill_solid(leds, NUM_LEDS, CRGB::Black);    sendLEDs_DMA(); delay(150);
+        }
+        WIFI_BLINK_POWER_OFF
+    }
+
+    // Желтое плавное мигание: клиент подключился к нашей точке доступа
+    if (blink_ap_client_flag) {
+        blink_ap_client_flag = false;
+        WIFI_BLINK_POWER_ON
+        for (int b = 0; b <= 22; b++) { fill_solid(leds, NUM_LEDS, CRGB(b, b, 0)); sendLEDs_DMA(); delay(8); }
+        for (int b = 22; b >= 0; b--) { fill_solid(leds, NUM_LEDS, CRGB(b, b, 0)); sendLEDs_DMA(); delay(8); }
+        WIFI_BLINK_POWER_OFF
+    }
+
+    #undef WIFI_BLINK_POWER_ON
+    #undef WIFI_BLINK_POWER_OFF
 
 }

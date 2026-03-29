@@ -19,6 +19,16 @@ String hostName;
 const char* HOTSPOT_SSID = "Bunnies Stan 2.4G";
 const char* HOTSPOT_PASS = "ValentinaAleksei";
 
+// --- Статусные флаги для LED-индикации WiFi ---
+volatile bool blink_wifi_ok_flag   = false;
+volatile bool blink_wifi_fail_flag = false;
+volatile bool blink_ap_client_flag = false;
+
+// --- Состояние переподключения ---
+static bool     sta_was_connected      = false;
+static bool     initial_connect_done   = false;
+static uint32_t last_reconnect_attempt = 0;
+
 void safeOTAShutdown() {
     FastLED.clear();
     sendLEDs_DMA();
@@ -85,6 +95,11 @@ void setupNetwork() {
     WiFi.softAPConfig(apIP, apIP, IPAddress(255, 255, 255, 0));
     WiFi.softAP(hostName.c_str(), "", 1);
 
+    // Мигание желтым, когда кто-то подключается к нашей точке доступа
+    WiFi.onEvent([](WiFiEvent_t event, WiFiEventInfo_t info) {
+        blink_ap_client_flag = true;
+    }, ARDUINO_EVENT_WIFI_AP_STACONNECTED);
+
     WiFi.begin(HOTSPOT_SSID, HOTSPOT_PASS);
 
     uint32_t startAttempt = millis();
@@ -98,9 +113,18 @@ void setupNetwork() {
         delay(500);
     }
 
-    if (!connected) {
-        WiFi.mode(WIFI_AP);
+    // ВАЖНО: НЕ переключаемся в WIFI_AP при неудаче —
+    // остаемся в WIFI_AP_STA и будем повторять попытки в loopNetwork().
+    if (connected) {
+        sta_was_connected = true;
+        blink_wifi_ok_flag = true;
+        Serial.printf("WiFi STA: подключено, IP: %s\n", WiFi.localIP().toString().c_str());
+    } else {
+        blink_wifi_fail_flag = true;
+        Serial.println("WiFi STA: подключение не удалось. Повтор через 30 с.");
     }
+    initial_connect_done  = true;
+    last_reconnect_attempt = millis();
 
     MDNS.begin(hostName.c_str());
 
@@ -116,6 +140,13 @@ void setupNetwork() {
         if (request->hasParam("bmin")) min_brightness = request->getParam("bmin")->value().toInt();
         if (request->hasParam("bmax")) max_brightness = request->getParam("bmax")->value().toInt();
         if (request->hasParam("a")) global_angle_offset = request->getParam("a")->value().toInt();
+        // Мгновенный пересчёт яркости — не ждём следующего тика датчика (50 мс)
+        float ratio = constrain(last_lux_value / 1000.0f, 0.0f, 1.0f);
+        global_brightness = (uint8_t)constrain(
+            (int)(ratio * (float)max_brightness),
+            (int)min_brightness,
+            (int)max_brightness
+        );
         request->send(200, "text/plain", "OK");
     });
 
@@ -216,4 +247,28 @@ void setupNetwork() {
 void loopNetwork() {
     ArduinoOTA.handle();
     ElegantOTA.loop();
+
+    // --- Мониторинг и переподключение к домашней сети WiFi ---
+    if (initial_connect_done) {
+        wl_status_t sta_status = WiFi.status();
+        uint32_t now_ms = millis();
+
+        if (sta_status == WL_CONNECTED && !sta_was_connected) {
+            // Новое соединение установлено (первичное или после обрыва)
+            sta_was_connected = true;
+            blink_wifi_ok_flag = true;
+            Serial.printf("WiFi STA: подключено, IP: %s\n", WiFi.localIP().toString().c_str());
+        } else if (sta_status != WL_CONNECTED && sta_was_connected) {
+            // Соединение потеряно
+            sta_was_connected = false;
+            Serial.println("WiFi STA: соединение потеряно");
+        }
+
+        // Периодическая попытка переподключения каждые 30 секунд
+        if (sta_status != WL_CONNECTED && now_ms - last_reconnect_attempt > 30000) {
+            last_reconnect_attempt = now_ms;
+            Serial.println("WiFi STA: попытка переподключения...");
+            WiFi.begin(HOTSPOT_SSID, HOTSPOT_PASS);
+        }
+    }
 }

@@ -525,6 +525,9 @@ function deleteFile(name) {
 // ===================== DUAL-RANGE BRIGHTNESS SLIDER =====================
 function pct(v) { return (v - 1) / 49 * 100; }
 
+// Хранит последнее известное значение NOW для пересчёта при движении ползунков
+let currentBrightness = 0;
+
 function updateDualRange() {
     const minV = +document.getElementById('bMinSlide').value;
     const maxV = +document.getElementById('bMaxSlide').value;
@@ -533,35 +536,48 @@ function updateDualRange() {
     fill.style.width = (pct(maxV) - pct(minV)) + '%';
     document.getElementById('bMinVal').textContent = minV;
     document.getElementById('bMaxVal').textContent = maxV;
+    // Немедленно пересчитать позицию NOW в новых границах
+    updateBriCursor(currentBrightness);
 }
 
 function updateBriCursor(val) {
-    document.getElementById('drCursor').style.left = pct(val) + '%';
-    document.getElementById('briVal').textContent = val;
+    currentBrightness = val;
+    const minV = +document.getElementById('bMinSlide').value;
+    const maxV = +document.getElementById('bMaxSlide').value;
+    // NOW всегда внутри диапазона [min, max] — ни визуально, ни реально не выходит за границы
+    const displayVal = Math.min(Math.max(val, minV), maxV);
+    document.getElementById('drCursor').style.left = pct(displayVal) + '%';
+    document.getElementById('briVal').textContent = displayVal;
+}
+
+// Дебаунс: синхронизируем не чаще 1 раза в 50 мс при перетаскивании ползунка
+let _syncTimer = null;
+function syncSettings() {
+    if (_syncTimer) clearTimeout(_syncTimer);
+    _syncTimer = setTimeout(() => {
+        const bmin = document.getElementById('bMinSlide').value;
+        const bmax = document.getElementById('bMaxSlide').value;
+        const a    = document.getElementById('aSlide').value;
+        fetch(`/settings?bmin=${bmin}&bmax=${bmax}&a=${a}`);
+        _syncTimer = null;
+    }, 50);
 }
 
 document.getElementById('bMinSlide').addEventListener('input', function() {
     const maxSlide = document.getElementById('bMaxSlide');
     if (+this.value > +maxSlide.value) this.value = maxSlide.value;
     updateDualRange();
+    syncSettings(); // Применять сразу при перетаскивании
 });
-document.getElementById('bMinSlide').addEventListener('change', syncSettings);
 
 document.getElementById('bMaxSlide').addEventListener('input', function() {
     const minSlide = document.getElementById('bMinSlide');
     if (+this.value < +minSlide.value) this.value = minSlide.value;
     updateDualRange();
+    syncSettings(); // Применять сразу при перетаскивании
 });
-document.getElementById('bMaxSlide').addEventListener('change', syncSettings);
 
 // ===================== SETTINGS =====================
-function syncSettings() {
-    const bmin = document.getElementById('bMinSlide').value;
-    const bmax = document.getElementById('bMaxSlide').value;
-    const a    = document.getElementById('aSlide').value;
-    fetch(`/settings?bmin=${bmin}&bmax=${bmax}&a=${a}`);
-}
-
 function loadSettings() {
     fetch('/get_settings').then(r => r.json()).then(d => {
         document.getElementById('bMinSlide').value = d.bmin;
@@ -601,10 +617,12 @@ window.onload = () => {
     loadSettings();
     updateBatteryStatus();
 
+    // NOW-яркость: 500 мс — быстрый отклик при изменении освещения или ползунков
     setInterval(() => {
-        updateBatteryStatus();
         fetch('/get_settings').then(r => r.json()).then(d => updateBriCursor(d.brightness)).catch(() => {});
-    }, 2000);
+    }, 500);
+    // Батарея: 2 с — медленный опрос, т.к. требует I2C ADC замеров
+    setInterval(updateBatteryStatus, 2000);
 };
 </script>
 </body>
