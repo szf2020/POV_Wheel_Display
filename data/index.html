@@ -241,9 +241,16 @@ canvas {
 
     <!-- Gamma correction -->
     <div class="slider-row">
-        <label>GAMMA CORRECTION <span id="gVal">2.2</span></label>
-        <input class="angle-slide" type="range" id="gSlide" min="10" max="40" value="22"
+        <label>GAMMA CORRECTION <span id="gVal">4.0</span></label>
+        <input class="angle-slide" type="range" id="gSlide" min="10" max="50" value="40"
                oninput="document.getElementById('gVal').textContent=(this.value/10).toFixed(1); syncSettings()">
+    </div>
+
+    <!-- Saturation -->
+    <div class="slider-row">
+        <label>SATURATION <span id="sVal">1.0</span></label>
+        <input class="angle-slide" type="range" id="sSlide" min="10" max="30" value="10"
+               oninput="document.getElementById('sVal').textContent=(this.value/10).toFixed(1); syncSettings()">
     </div>
 </div>
 
@@ -588,7 +595,8 @@ function syncSettings() {
         const bmax = document.getElementById('bMaxSlide').value;
         const a    = document.getElementById('aSlide').value;
         const g    = (document.getElementById('gSlide').value / 10).toFixed(1);
-        fetch(`/settings?bmin=${bmin}&bmax=${bmax}&a=${a}&g=${g}`);
+        const s    = (document.getElementById('sSlide').value / 10).toFixed(1);
+        fetch(`/settings?bmin=${bmin}&bmax=${bmax}&a=${a}&g=${g}&s=${s}`);
         _syncTimer = null;
     }, 50);
 }
@@ -623,6 +631,10 @@ function loadSettings() {
         if (d.gamma !== undefined) {
             document.getElementById('gSlide').value = Math.round(d.gamma * 10);
             document.getElementById('gVal').textContent = parseFloat(d.gamma).toFixed(1);
+        }
+        if (d.saturation !== undefined) {
+            document.getElementById('sSlide').value = Math.round(d.saturation * 10);
+            document.getElementById('sVal').textContent = parseFloat(d.saturation).toFixed(1);
         }
         updateDualRange();
         updateBriCursor(d.brightness);

@@ -142,7 +142,11 @@ void setupNetwork() {
         if (request->hasParam("a")) global_angle_offset = request->getParam("a")->value().toInt();
         if (request->hasParam("g")) {
             float gv = request->getParam("g")->value().toFloat();
-            if (gv >= 1.0f && gv <= 4.0f) global_gamma = gv;
+            if (gv >= 1.0f && gv <= 5.0f) global_gamma = gv;
+        }
+        if (request->hasParam("s")) {
+            float sv = request->getParam("s")->value().toFloat();
+            if (sv >= 1.0f && sv <= 3.0f) global_saturation = sv;
         }
         // Мгновенный пересчёт яркости — не ждём следующего тика датчика (50 мс)
         float ratio = constrain(last_lux_value / 1000.0f, 0.0f, 1.0f);
@@ -160,7 +164,8 @@ void setupNetwork() {
         json += "\"bmax\":" + String(max_brightness) + ",";
         json += "\"angle\":" + String(global_angle_offset) + ",";
         json += "\"brightness\":" + String(global_brightness) + ",";
-        json += "\"gamma\":" + String(global_gamma, 1);
+        json += "\"gamma\":" + String(global_gamma, 1) + ",";
+        json += "\"saturation\":" + String(global_saturation, 1);
         json += "}";
         request->send(200, "application/json", json);
     });

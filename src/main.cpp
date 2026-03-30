@@ -77,7 +77,8 @@ static SemaphoreHandle_t   dmaMutex       = nullptr;
 volatile bool wakeup_event = false;
 volatile bool request_play_flag = false;
 
-RTC_DATA_ATTR volatile float    global_gamma       = 4.0f; // Сохраняется в RTC-памяти (переживает deep sleep)
+RTC_DATA_ATTR volatile float global_gamma      = 2.0f; // Сохраняется в RTC-памяти (переживает deep sleep)
+RTC_DATA_ATTR volatile float global_saturation = 2.0f; // 1.0 = без изменений, >1 усиливает насыщенность
 uint8_t gamma_lut[256];
 
 // Хелперы для I2C чтения BQ25798
@@ -276,12 +277,18 @@ void drawSectorDMA(int current_sector) {
     if (!frameBuffer || !newFrameReady || !dma_tx_buffer || !dmaMutex) return;
 
     // Перестраиваем LUT если гамма изменилась.
-    // Сравнение с last_built_gamma — статическая переменная на Core 1.
-    // global_gamma в RTC-памяти (некешируемая), поэтому запись с Core 0 видна немедленно.
-    static float last_built_gamma = -1.0f;
+    // global_gamma/global_saturation — RTC-память (некешируемая), видна с Core 0 немедленно.
+    static float   last_built_gamma = -1.0f;
+    static float   last_built_sat   = -1.0f;
+    static int16_t sat_fxp          = 256; // fixed-point Q8: saturation * 256
+
     if (global_gamma != last_built_gamma) {
         rebuildGammaLUT();
         last_built_gamma = global_gamma;
+    }
+    if (global_saturation != last_built_sat) {
+        sat_fxp = (int16_t)(global_saturation * 256.0f);
+        last_built_sat = global_saturation;
     }
 
     uint32_t anim_offset = currentFrameIndex * FRAME_SIZE;
@@ -299,6 +306,19 @@ void drawSectorDMA(int current_sector) {
             uint8_t r = gamma_lut[src[i * 3]];
             uint8_t g = gamma_lut[src[i * 3 + 1]];
             uint8_t b = gamma_lut[src[i * 3 + 2]];
+
+            // Коррекция насыщенности: Luma по Rec.709, целочисленная арифметика
+            // L = (77*R + 150*G + 29*B) / 256, сумма коэффициентов = 256
+            // R' = clamp(L + (R - L) * saturation)
+            if (sat_fxp != 256) {
+                int16_t L = (int16_t)((77 * r + 150 * g + 29 * b) >> 8);
+                int16_t r2 = L + (((int16_t)r - L) * sat_fxp >> 8);
+                int16_t g2 = L + (((int16_t)g - L) * sat_fxp >> 8);
+                int16_t b2 = L + (((int16_t)b - L) * sat_fxp >> 8);
+                r = (uint8_t)constrain(r2, 0, 255);
+                g = (uint8_t)constrain(g2, 0, 255);
+                b = (uint8_t)constrain(b2, 0, 255);
+            }
 
             int idx_a = (ray * 76 + i) * 4;
             int idx_b = (ray * 76 + 75 - i) * 4;

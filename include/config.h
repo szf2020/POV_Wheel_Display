@@ -61,8 +61,11 @@ extern Preferences prefs;
 extern volatile bool request_play_flag;
 
 // Гамма-коррекция
-extern volatile float global_gamma;   // 1.0 = линейная, 2.2 = стандарт, 4.0 = максимум
-extern uint8_t        gamma_lut[256]; // ЛУТ, перестраивается в drawSectorDMA при изменении gamma
+extern volatile float global_gamma;      // 1.0 = линейная, до 5.0 = максимум
+extern uint8_t        gamma_lut[256];    // ЛУТ, перестраивается в drawSectorDMA при изменении gamma
+
+// Коррекция насыщенности
+extern volatile float global_saturation; // 1.0 = без изменений, до 3.0 = максимум
 
 // DMA-замена FastLED.show() — определена в main.cpp, используется также в network.cpp
 extern void sendLEDs_DMA();
