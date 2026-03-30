@@ -140,6 +140,10 @@ void setupNetwork() {
         if (request->hasParam("bmin")) min_brightness = request->getParam("bmin")->value().toInt();
         if (request->hasParam("bmax")) max_brightness = request->getParam("bmax")->value().toInt();
         if (request->hasParam("a")) global_angle_offset = request->getParam("a")->value().toInt();
+        if (request->hasParam("g")) {
+            float gv = request->getParam("g")->value().toFloat();
+            if (gv >= 1.0f && gv <= 4.0f) global_gamma = gv;
+        }
         // Мгновенный пересчёт яркости — не ждём следующего тика датчика (50 мс)
         float ratio = constrain(last_lux_value / 1000.0f, 0.0f, 1.0f);
         global_brightness = (uint8_t)constrain(
@@ -155,7 +159,8 @@ void setupNetwork() {
         json += "\"bmin\":" + String(min_brightness) + ",";
         json += "\"bmax\":" + String(max_brightness) + ",";
         json += "\"angle\":" + String(global_angle_offset) + ",";
-        json += "\"brightness\":" + String(global_brightness);
+        json += "\"brightness\":" + String(global_brightness) + ",";
+        json += "\"gamma\":" + String(global_gamma, 1);
         json += "}";
         request->send(200, "application/json", json);
     });
@@ -193,6 +198,8 @@ void setupNetwork() {
             loadFrameFromFile("/" + fname);
             prefs.putString("last_file", fname);
             force_stop_display = false;
+            // Сигнализируем loop() включить питание LED, если оно было выключено
+            request_play_flag = true;
             request->send(200, "text/plain", "Playing");
         }
     });

@@ -199,6 +199,9 @@ canvas {
     <canvas id="preview" width="200" height="200" style="display:none;"></canvas>
     <button class="full-w" onclick="processAndUpload()">&#9654; Convert &amp; Upload</button>
     <div class="status-bar" id="uploadStatus">Waiting for file...</div>
+    <div id="uploadProgressWrap" style="display:none; margin-top:5px;">
+        <div class="fs-bar"><div class="fs-bar-fill" id="uploadProgressBar" style="width:0%; transition:width 0.15s;"></div></div>
+    </div>
 </div>
 
 <!-- STORAGE -->
@@ -220,8 +223,8 @@ canvas {
         <div class="bri-track"></div>
         <div class="bri-fill" id="drFill"></div>
         <div class="bri-cursor" id="drCursor" style="left:0%"></div>
-        <input type="range" id="bMinSlide" min="1" max="50" value="10">
-        <input type="range" id="bMaxSlide" min="1" max="50" value="50">
+        <input type="range" id="bMinSlide" min="10" max="50" value="10">
+        <input type="range" id="bMaxSlide" min="10" max="50" value="50">
     </div>
     <div class="bri-labels">
         <span>MIN&nbsp;<b id="bMinVal">10</b>%</span>
@@ -233,8 +236,14 @@ canvas {
     <div class="slider-row">
         <label>ANGLE OFFSET <span id="aVal">0</span>&deg;</label>
         <input class="angle-slide" type="range" id="aSlide" min="0" max="360" value="0"
-               oninput="document.getElementById('aVal').textContent=this.value"
-               onchange="syncSettings()">
+               oninput="document.getElementById('aVal').textContent=this.value; syncSettings()">
+    </div>
+
+    <!-- Gamma correction -->
+    <div class="slider-row">
+        <label>GAMMA CORRECTION <span id="gVal">2.2</span></label>
+        <input class="angle-slide" type="range" id="gSlide" min="10" max="40" value="22"
+               oninput="document.getElementById('gVal').textContent=(this.value/10).toFixed(1); syncSettings()">
     </div>
 </div>
 
@@ -471,17 +480,41 @@ async function processAndUpload() {
         outputBuffer = toPolarBuffer(previewCanvas);
     }
 
-    setStatus('uploadStatus', `Uploading ${(outputBuffer.length/1024).toFixed(1)} kB → ${fileName}...`, '');
-    try {
-        const res = await fetch(`/upload?name=${encodeURIComponent(fileName)}`, { method: 'POST', body: outputBuffer });
-        if (res.ok) {
-            setStatus('uploadStatus', `Uploaded: ${fileName}`, 'ok');
-            document.getElementById('fileNameInput').value = '';
-            loadFiles(); loadFSInfo();
-        } else {
-            setStatus('uploadStatus', 'Upload failed (server error).', 'err');
-        }
-    } catch(e) { setStatus('uploadStatus', 'Upload error: ' + e.message, 'err'); }
+    const progBar  = document.getElementById('uploadProgressBar');
+    const progWrap = document.getElementById('uploadProgressWrap');
+    progWrap.style.display = 'block';
+    progBar.style.width = '0%';
+    setStatus('uploadStatus', `Uploading 0%  ·  0 / ${(outputBuffer.length/1024).toFixed(1)} kB`, '');
+
+    await new Promise(resolve => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `/upload?name=${encodeURIComponent(fileName)}`);
+        xhr.upload.addEventListener('progress', e => {
+            if (e.lengthComputable) {
+                const p = e.loaded / e.total * 100;
+                progBar.style.width = p.toFixed(1) + '%';
+                setStatus('uploadStatus',
+                    `Uploading ${p.toFixed(0)}%  ·  ${(e.loaded/1024).toFixed(1)} / ${(e.total/1024).toFixed(1)} kB`, '');
+            }
+        });
+        xhr.onload = () => {
+            progWrap.style.display = 'none';
+            if (xhr.status === 200) {
+                setStatus('uploadStatus', `Uploaded: ${fileName}`, 'ok');
+                document.getElementById('fileNameInput').value = '';
+                loadFiles(); loadFSInfo();
+            } else {
+                setStatus('uploadStatus', 'Upload failed (server error).', 'err');
+            }
+            resolve();
+        };
+        xhr.onerror = () => {
+            progWrap.style.display = 'none';
+            setStatus('uploadStatus', 'Upload error.', 'err');
+            resolve();
+        };
+        xhr.send(outputBuffer);
+    });
 }
 
 // ===================== FILE MANAGER =====================
@@ -516,14 +549,10 @@ function loadFSInfo() {
 
 function playFile(name)   { fetch(`/play?file=${encodeURIComponent(name)}`); }
 function stopDisplay()    { fetch('/stop'); }
-function deleteFile(name) {
-    if (confirm('Delete ' + name + '?')) {
-        fetch(`/delete?file=${encodeURIComponent(name)}`).then(() => { loadFiles(); loadFSInfo(); });
-    }
-}
+function deleteFile(name) { fetch(`/delete?file=${encodeURIComponent(name)}`).then(() => { loadFiles(); loadFSInfo(); }); }
 
 // ===================== DUAL-RANGE BRIGHTNESS SLIDER =====================
-function pct(v) { return (v - 1) / 49 * 100; }
+function pct(v) { return (v - 10) / 40 * 100; }
 
 // Хранит последнее известное значение NOW для пересчёта при движении ползунков
 let currentBrightness = 0;
@@ -558,7 +587,8 @@ function syncSettings() {
         const bmin = document.getElementById('bMinSlide').value;
         const bmax = document.getElementById('bMaxSlide').value;
         const a    = document.getElementById('aSlide').value;
-        fetch(`/settings?bmin=${bmin}&bmax=${bmax}&a=${a}`);
+        const g    = (document.getElementById('gSlide').value / 10).toFixed(1);
+        fetch(`/settings?bmin=${bmin}&bmax=${bmax}&a=${a}&g=${g}`);
         _syncTimer = null;
     }, 50);
 }
@@ -566,15 +596,21 @@ function syncSettings() {
 document.getElementById('bMinSlide').addEventListener('input', function() {
     const maxSlide = document.getElementById('bMaxSlide');
     if (+this.value > +maxSlide.value) this.value = maxSlide.value;
+    // Поднимаем min поверх: пользователь активно его двигает
+    this.style.zIndex = 5;
+    maxSlide.style.zIndex = '';
     updateDualRange();
-    syncSettings(); // Применять сразу при перетаскивании
+    syncSettings();
 });
 
 document.getElementById('bMaxSlide').addEventListener('input', function() {
     const minSlide = document.getElementById('bMinSlide');
     if (+this.value < +minSlide.value) this.value = minSlide.value;
+    // Поднимаем max поверх: пользователь активно его двигает
+    this.style.zIndex = 5;
+    minSlide.style.zIndex = '';
     updateDualRange();
-    syncSettings(); // Применять сразу при перетаскивании
+    syncSettings();
 });
 
 // ===================== SETTINGS =====================
@@ -584,6 +620,10 @@ function loadSettings() {
         document.getElementById('bMaxSlide').value = d.bmax;
         document.getElementById('aSlide').value    = d.angle;
         document.getElementById('aVal').textContent = d.angle;
+        if (d.gamma !== undefined) {
+            document.getElementById('gSlide').value = Math.round(d.gamma * 10);
+            document.getElementById('gVal').textContent = parseFloat(d.gamma).toFixed(1);
+        }
         updateDualRange();
         updateBriCursor(d.brightness);
     }).catch(() => {});
