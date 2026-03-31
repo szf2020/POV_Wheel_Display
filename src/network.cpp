@@ -38,6 +38,10 @@ void loadFrameFromFile(String path) {
     File f = LittleFS.open(path, "r");
     if (!f) return;
 
+    // Останавливаем рендеринг ДО освобождения буфера: renderingTask (Core 1) может
+    // работать параллельно (Core 0), и увидеть frameBuffer = nullptr → краш.
+    newFrameReady = false;
+
     if (frameBuffer != nullptr) {
         free(frameBuffer);
         frameBuffer = nullptr;
@@ -46,7 +50,6 @@ void loadFrameFromFile(String path) {
     totalFrames = 1;
     frameDelay = 100;
     currentFrameIndex = 0;
-    lastFrameSwitchTime = millis();
 
     size_t fileSize = f.size();
 
@@ -77,6 +80,10 @@ void loadFrameFromFile(String path) {
     }
 
     f.close();
+    // Запускаем таймер кадров только ПОСЛЕ завершения чтения файла:
+    // если поставить в начало, то при медленном чтении (100–500 мс) первый кадр
+    // будет немедленно пропущен в renderingTask, т.к. frameDelay уже истёк.
+    lastFrameSwitchTime = millis();
     newFrameReady = true;
 }
 

@@ -345,6 +345,23 @@ void renderingTask(void* pvParameters) {
 
         if (force_stop_display || !peripherals_active || !newFrameReady) continue;
 
+        // --- Переключение кадров анимации (GIF таймер) ---
+        // Выполняется здесь, а не в loop(): renderingTask (приоритет 18) делает
+        // занятое ожидание весь оборот колеса и полностью вытесняет loop()
+        // (приоритет 1) на том же Core 1 — тот не успевает выполниться.
+        // Важно: за один оборот может пройти несколько frameDelay — вычисляем,
+        // сколько кадров реально истекло, и прыгаем сразу на нужный, иначе
+        // при period >> frameDelay анимация играет в period/frameDelay раз медленнее.
+        if (totalFrames > 1 && frameBuffer != nullptr) {
+            uint32_t now_anim = millis();
+            uint32_t elapsed  = now_anim - lastFrameSwitchTime;
+            if (elapsed >= frameDelay) {
+                uint32_t steps = elapsed / frameDelay;
+                lastFrameSwitchTime += steps * frameDelay;
+                currentFrameIndex = (currentFrameIndex + steps) % totalFrames;
+            }
+        }
+
         // Авто-яркость: раз в 100 мс — loop() вытесняется этой задачей
         uint32_t now_rt = millis();
         if (now_rt - last_bri_time >= 100) {
@@ -848,15 +865,6 @@ void loop() {
         loadFrameFromFile("/" + currentFile);
         currentSlideIndex++;
         if (currentSlideIndex >= savedFiles.size()) currentSlideIndex = 0;
-    }
-
-    // --- 8. Переключение кадров анимации (GIF таймер) ---
-    if (totalFrames > 1 && peripherals_active && !force_stop_display) {
-        if (now_ms - lastFrameSwitchTime >= frameDelay) {
-            lastFrameSwitchTime = now_ms;
-            currentFrameIndex++;
-            if (currentFrameIndex >= totalFrames) currentFrameIndex = 0;
-        }
     }
 
     // --- 9. LED-индикация успешной загрузки файла ---
