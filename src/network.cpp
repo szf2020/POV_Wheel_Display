@@ -80,6 +80,9 @@ void loadFrameFromFile(String path) {
     }
 
     f.close();
+    // Если выделить память не удалось — не запускаем рендеринг с нулевым буфером.
+    // renderingTask обратится к frameBuffer по нулевому указателю → паника.
+    if (frameBuffer == nullptr) return;
     // Запускаем таймер кадров только ПОСЛЕ завершения чтения файла:
     // если поставить в начало, то при медленном чтении (100–500 мс) первый кадр
     // будет немедленно пропущен в renderingTask, т.к. frameDelay уже истёк.
@@ -207,11 +210,16 @@ void setupNetwork() {
         last_web_activity_time = millis();
         if (request->hasParam("file")) {
             String fname = request->getParam("file")->value();
-            loadFrameFromFile("/" + fname);
+            // Сохраняем файл ДО загрузки: если загрузка упадёт с крашем,
+            // после перезагрузки устройство восстановит правильный файл.
             prefs.putString("last_file", fname);
             force_stop_display = false;
-            // Сигнализируем loop() включить питание LED, если оно было выключено
+            // Передаём загрузку в fileLoaderTask (Core 0, приоритет 2).
+            // Это освобождает WiFi-задачу немедленно — браузер получает ответ
+            // без ожидания пока LittleFS прочитает весь файл (может быть секунды).
+            pendingFilePath = "/" + fname;
             request_play_flag = true;
+            xSemaphoreGive(fileLoaderSemaphore);
             request->send(200, "text/plain", "Playing");
         }
     });

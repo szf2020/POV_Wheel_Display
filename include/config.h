@@ -60,6 +60,11 @@ extern Preferences prefs;
 // Флаг: web UI запросил воспроизведение — loop() должен включить питание LED
 extern volatile bool request_play_flag;
 
+// Асинхронная загрузка файлов: fileLoaderTask ждёт семафора, грузит pendingFilePath
+#include <freertos/semphr.h>
+extern SemaphoreHandle_t fileLoaderSemaphore;
+extern String pendingFilePath;
+
 // Гамма-коррекция
 extern volatile float global_gamma;      // 1.0 = линейная, до 5.0 = максимум
 extern uint8_t        gamma_lut[256];    // ЛУТ, перестраивается в drawSectorDMA при изменении gamma
