@@ -81,7 +81,7 @@ String                     pendingFilePath;
 volatile bool wakeup_event = false;
 volatile bool request_play_flag = false;
 
-RTC_DATA_ATTR volatile float global_gamma      = 4.0f; // Сохраняется в RTC-памяти (переживает deep sleep)
+RTC_DATA_ATTR volatile float global_gamma      = 3.5f; // Сохраняется в RTC-памяти (переживает deep sleep)
 RTC_DATA_ATTR volatile float global_saturation = 1.0f; // 1.0 = без изменений, >1 усиливает насыщенность
 uint8_t gamma_lut[256];
 
