@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find c:UsersuserDocumentsPlatformIOProjectsPOV_Wheel_Display.piobuild -name *.bin -o -name firmware.elf)",
+      "Read(//c/Users/user/Documents/PlatformIO/Projects/POV_Wheel_Display/$HOME/**)"
+    ]
+  }
+}
