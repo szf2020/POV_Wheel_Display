@@ -285,7 +285,18 @@ void rebuildGammaLUT() {
 // Заполняет DMA-буфер данными сектора без отправки по SPI.
 // Вызывается из renderingTask пока предыдущий буфер ещё передаётся — CPU и DMA работают параллельно.
 static void fillSectorIntoBuffer(uint8_t* buf, int current_sector) {
-    if (frameBuffer == nullptr) return; // Защита от краша если буфер не выделен
+    if (frameBuffer == nullptr) {
+        // Буфер ещё не загружен или уже освобождён — гасим все диоды,
+        // чтобы не отправить устаревшие данные из предыдущей анимации.
+        uint8_t* led_ptr = buf + 4;
+        for (int i = 0; i < NUM_LEDS; i++) {
+            led_ptr[i * 4 + 0] = 0xE0; // SK9822: 111bbbbb, brightness=0 → ток=0
+            led_ptr[i * 4 + 1] = 0;
+            led_ptr[i * 4 + 2] = 0;
+            led_ptr[i * 4 + 3] = 0;
+        }
+        return;
+    }
     static float   last_built_gamma = -1.0f;
     static float   last_built_sat   = -1.0f;
     static int16_t sat_fxp          = 256;
@@ -390,7 +401,10 @@ void renderingTask(void* pvParameters) {
         tx_pending      = false;
 
         while (true) {
-            if (force_stop_display || !peripherals_active) break;
+            // Прерываем оборот если буфер освобождается во время рендеринга:
+            // loadFrameFromFile (Core 0) ставит newFrameReady=false ДО free(frameBuffer),
+            // поэтому эта проверка надёжно защищает от use-after-free.
+            if (force_stop_display || !peripherals_active || !newFrameReady) break;
 
             uint32_t elapsed = micros() - t0;
             if (elapsed >= period) break;
@@ -646,8 +660,6 @@ void loop() {
 
 
     // --- Обработка запроса Play из Web UI ---
-    // Выполняется ДО захвата safe_last_hall_time, чтобы сброс last_hall_time
-    // был виден секции 2 (1-секундный таймаут) уже в этой же итерации loop().
     if (request_play_flag) {
         request_play_flag = false;
         if (!peripherals_active) {
@@ -657,11 +669,10 @@ void loop() {
             digitalWrite(PIN_EN_LEVEL_SHIFT, HIGH);
             peripherals_active = true;
         }
-        // Сбрасываем таймер Холла, чтобы секция 2 не выключила питание немедленно
-        // из-за устаревшего значения last_hall_time (колесо могло стоять долго).
-        noInterrupts();
-        last_hall_time = micros();
-        interrupts();
+        // Не сбрасываем last_hall_time — это портит rotation_period в ISR:
+        // если Холл сработает вскоре после сброса, rotation_period = несколько мс
+        // вместо ~333мс, и renderingTask выйдет из цикла после 1 сектора.
+        // Вместо этого секция 2 проверяет last_web_activity_time (обновляется в /play).
     }
 
     // --- БЕЗОПАСНОЕ ЧТЕНИЕ ПРЕРЫВАНИЙ ---
@@ -722,7 +733,11 @@ void loop() {
     }
 
     // --- 2. Логика остановки (Таймаут 1 секунда) ---
-    if (peripherals_active && time_since_magnet_us > 1000000 && !force_stop_display) {
+    // Не выключаем питание если недавно был запрос /play: файл может ещё грузиться
+    // (loadFrameFromFile читает PSRAM ~100–500 мс). last_web_activity_time обновляется
+    // в HTTP-обработчике /play до передачи семафора fileLoaderTask.
+    if (peripherals_active && time_since_magnet_us > 1000000 && !force_stop_display &&
+        (now_ms - (uint32_t)last_web_activity_time) > 3000) {
         Serial.println("Остановка рендеринга (Таймаут 1с). Отключение питания LED");
         FastLED.clear(); sendLEDs_DMA();
         digitalWrite(PIN_EN_LEVEL_SHIFT, LOW);
