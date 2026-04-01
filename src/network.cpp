@@ -262,6 +262,22 @@ void setupNetwork() {
         request->send(200, "text/plain", "OK");
     });
 
+    server.on("/info", HTTP_GET, [](AsyncWebServerRequest *request){
+        uint32_t period  = rotation_period;
+        uint32_t hall_t  = last_hall_time;
+        uint32_t now_us  = micros();
+        // Защита от переполнения uint32_t при вычитании
+        uint32_t elapsed = (now_us >= hall_t) ? (now_us - hall_t)
+                                              : (0xFFFFFFFFUL - hall_t + now_us + 1);
+        // Если с последнего прохода магнита прошло > 2с — колесо остановлено
+        float rpm = 0.0f;
+        if (period > 0 && elapsed < 2000000UL) {
+            rpm = 60000000.0f / (float)period;
+        }
+        String json = "{\"rpm\":" + String(rpm, 1) + "}";
+        request->send(200, "application/json", json);
+    });
+
     ElegantOTA.begin(&server);
     ElegantOTA.onStart(safeOTAShutdown);
     server.begin();

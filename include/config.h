@@ -51,6 +51,10 @@ extern uint32_t lastFrameSwitchTime;
 // Отслеживание активности Web UI
 extern volatile uint32_t last_web_activity_time;
 
+// Данные датчика Холла (для расчёта RPM в /info)
+extern volatile uint32_t last_hall_time;
+extern volatile uint32_t rotation_period;
+
 // Настройки альбома
 extern bool slideshowActive;
 extern uint16_t slideInterval;

@@ -218,7 +218,7 @@ canvas {
     <div class="panel-title">// Display Settings</div>
 
     <!-- Dual-range brightness -->
-    <div style="font-size:0.63em;letter-spacing:0.1em;color:var(--dim);margin-bottom:5px;">BRIGHTNESS RANGE</div>
+    <div style="font-size:0.68em;letter-spacing:0.07em;margin-bottom:5px;">BRIGHTNESS RANGE</div>
     <div class="bri-wrap">
         <div class="bri-track"></div>
         <div class="bri-fill" id="drFill"></div>
@@ -234,7 +234,7 @@ canvas {
 
     <!-- Angle -->
     <div class="slider-row">
-        <label>ANGLE OFFSET <span id="aVal">0</span>&deg;</label>
+        <label>ANGLE OFFSET <span><span id="aVal">0</span>&deg;</span></label>
         <input class="angle-slide" type="range" id="aSlide" min="0" max="360" value="0"
                oninput="document.getElementById('aVal').textContent=this.value; syncSettings()">
     </div>
@@ -254,13 +254,35 @@ canvas {
     </div>
 </div>
 
-<!-- POWER -->
+<!-- POWER + INFO -->
 <div class="panel">
     <div class="panel-title">// Power Status</div>
     <div class="stat-row"><span class="lbl">BATTERY VOLTAGE</span><span class="val" id="batV">--</span>&nbsp;V</div>
     <div class="stat-row"><span class="lbl">CHARGE CURRENT</span><span class="val" id="batI">--</span>&nbsp;A</div>
     <div class="stat-row"><span class="lbl">INPUT VOLTAGE</span><span class="val" id="busV">--</span>&nbsp;V</div>
     <div class="stat-row"><span class="lbl">INPUT CURRENT</span><span class="val" id="busI">--</span>&nbsp;A</div>
+
+    <div style="height:1px;background:var(--border);margin:13px 0 11px;"></div>
+
+    <div class="panel-title" style="margin-bottom:11px;">// Info</div>
+    <div class="stat-row"><span class="lbl">RPM</span><span class="val" id="infoRpm">--</span></div>
+    <div class="stat-row">
+        <span class="lbl">SPEED</span>
+        <span style="display:flex;align-items:baseline;gap:4px;">
+            <span class="val" id="infoSpeed">--</span>
+            <span style="color:var(--dim);font-size:0.85em;">km/h</span>
+        </span>
+    </div>
+    <div class="stat-row" style="align-items:center;margin-top:2px;">
+        <span class="lbl">WHEEL CIRCUMFERENCE</span>
+        <span style="display:flex;align-items:center;gap:5px;">
+            <input type="text" id="wheelCirc" value="2355"
+                   style="width:58px;margin:0;padding:3px 6px;font-size:0.78em;text-align:right;
+                          background:#0a1628;border:1px solid var(--border);color:var(--c);
+                          font-family:inherit;outline:none;">
+            <span style="font-size:0.72em;color:var(--dim);">mm</span>
+        </span>
+    </div>
 </div>
 
 </div><!-- /grid -->
@@ -641,6 +663,29 @@ function loadSettings() {
     }).catch(() => {});
 }
 
+// ===================== INFO (RPM + SPEED) =====================
+let wheelCircMm = parseInt(localStorage.getItem('wheelCirc') || '2355');
+document.getElementById('wheelCirc').value = wheelCircMm;
+
+document.getElementById('wheelCirc').addEventListener('change', function() {
+    const v = parseInt(this.value);
+    if (v > 0 && v < 10000) {
+        wheelCircMm = v;
+        localStorage.setItem('wheelCirc', v);
+        updateInfo();
+    }
+});
+
+function updateInfo() {
+    fetch('/info').then(r => r.json()).then(d => {
+        const rpm = d.rpm;
+        document.getElementById('infoRpm').textContent = rpm.toFixed(0);
+        // speed (km/h) = circumference(mm) * rpm / 60 / 1000 * 3.6
+        const kmh = wheelCircMm * rpm * 0.00006;
+        document.getElementById('infoSpeed').textContent = kmh.toFixed(1);
+    }).catch(() => {});
+}
+
 // ===================== BATTERY =====================
 function updateBatteryStatus() {
     fetch('/battery').then(r => r.json()).then(d => {
@@ -675,6 +720,9 @@ window.onload = () => {
     }, 500);
     // Батарея: 2 с — медленный опрос, т.к. требует I2C ADC замеров
     setInterval(updateBatteryStatus, 2000);
+    // RPM/Speed: 500 мс
+    updateInfo();
+    setInterval(updateInfo, 500);
 };
 </script>
 </body>
